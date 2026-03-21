@@ -1,0 +1,47 @@
+# Playlist Ladder
+
+A React + TypeScript + Vite web app for ranking Spotify playlist tracks by preference using a bucket-seeded Elo system, with Supabase auth/data scaffolding and Tailwind CSS UI.
+
+## Features
+
+- Spotify OAuth via Supabase Auth with the requested scopes and an overrideable preview-safe redirect URL.
+- English/Korean UI toggle with persisted locale selection.
+- Playlist import flow with a demo mode when environment variables are not present.
+- Tier bucket setup that seeds ratings using the requested tier anchors.
+- Closest-rated same-tier matchmaking with adaptive K-factor updates.
+- Adaptive battle UI:
+  - rating gap `>= 150` → binary win/lose
+  - rating gap `< 150` → 5-point scale
+- Ranking board with convergence, search, and tier filtering.
+- Supabase SQL schema for `songs`, `ratings`, and `matches` with RLS keyed by `user_id`.
+
+## Local development
+
+```bash
+npm install
+npm run dev
+```
+
+The Vite dev server is configured to run on `http://localhost:3000` so it matches the local Spotify/Supabase callback flow.
+
+Create a `.env` from `.env.example` and provide your Supabase project URL and anon key. `VITE_SUPABASE_REDIRECT_TO` should be the site origin for your deployment; the app automatically sends Spotify OAuth back through `/auth/callback`. For preview deployments, add the resulting callback URL to your Supabase and Spotify OAuth settings. After Spotify approval, the app automatically forwards authenticated users to `/setup/playlist`.
+
+## Supabase + Spotify setup notes
+
+1. In Supabase Auth, enable the Spotify provider.
+2. Add the callback URL for your environment. For local development, use `http://localhost:3000/auth/callback` in Supabase Auth redirect URLs and in the Spotify provider settings. Set `VITE_SUPABASE_REDIRECT_TO=http://localhost:3000` so the app can derive that callback path.
+3. Use the following scopes:
+   - `user-read-private`
+   - `user-read-email`
+   - `playlist-read-private`
+   - `user-library-read`
+   - `streaming`
+   - `user-modify-playback-state`
+4. Run `supabase/schema.sql` against your project to create the RLS-protected tables.
+
+## Architecture overview
+
+- `src/lib/spotify.ts` fetches Spotify profile, playlists, tracks, and lazy-loads the Web Playback SDK.
+- `src/lib/elo.ts` contains rating initialization, K-factor logic, matchmaking, and convergence helpers.
+- `src/store/appStore.ts` stores auth, playlist, song, rating, and match state in Zustand with persist middleware.
+- `src/pages/*` implements landing, playlist setup, bucket setup, match loop, and ranking views.
