@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react';
 import type { Song } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { buildMatchup, getAdaptiveBattleMode } from '../lib/elo';
@@ -48,11 +49,19 @@ export function MatchPage() {
   function PlayButton({ song }: { song: Song }) {
     const isThisPlaying = playing && currentTrackId === song.spotifyTrackId;
 
+    const stopCardClick = (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      event.preventDefault();
+    };
+
     if (user?.isPremium) {
       return (
         <button
           type="button"
-          onClick={() => void togglePlay(song.spotifyTrackId)}
+          onClick={(event) => {
+            stopCardClick(event);
+            void togglePlay(song.spotifyTrackId);
+          }}
           disabled={!ready}
           title={ready ? (isThisPlaying ? '일시정지' : '전곡 재생') : 'Player 연결 중...'}
           className={`shrink-0 flex items-center justify-center w-7 h-7 rounded-full border transition
@@ -81,7 +90,8 @@ export function MatchPage() {
       return (
         <button
           type="button"
-          onClick={() => {
+          onClick={(event) => {
+            stopCardClick(event);
             const audio = document.getElementById(`preview-${song.id}`) as HTMLAudioElement | null;
             if (audio) {
               if (audio.paused) void audio.play();
@@ -100,6 +110,51 @@ export function MatchPage() {
 
     return (
       <span className="shrink-0 text-[11px] text-warm-300" title="미리듣기 없음">🔒</span>
+    );
+  }
+
+  function MatchCard({
+    song,
+    rating,
+    onSelect,
+    selectLabel,
+  }: {
+    song: Song;
+    rating: number;
+    onSelect: () => void;
+    selectLabel: string;
+  }) {
+    return (
+      <article className="rounded-2xl border border-warm-200 bg-white p-3 transition hover:border-warm-400 hover:-translate-y-0.5">
+        <button
+          type="button"
+          onClick={onSelect}
+          className="block w-full text-left"
+        >
+          {song.imageUrl ? (
+            <img src={song.imageUrl} alt={song.title} className="mb-2 aspect-square w-full rounded-xl object-cover" />
+          ) : (
+            <div className="mb-2 flex aspect-square w-full items-center justify-center rounded-xl bg-warm-100 text-3xl">🎵</div>
+          )}
+          <p className="truncate text-xs font-medium text-warm-800">{song.title}</p>
+          <p className="mb-2 truncate text-[10px] text-warm-400">{song.artist}</p>
+        </button>
+        <div className="flex items-center justify-between gap-1">
+          <span className="rounded-full bg-warm-100 px-1.5 py-0.5 text-[9px] text-warm-500">
+            {Math.round(rating)}
+          </span>
+          <div className="flex items-center gap-1.5">
+            <PlayButton song={song} />
+            <button
+              type="button"
+              onClick={onSelect}
+              className="rounded-full border border-warm-200 px-2 py-1 text-[10px] font-medium text-warm-700 transition hover:bg-warm-50 active:scale-95"
+            >
+              {selectLabel}
+            </button>
+          </div>
+        </div>
+      </article>
     );
   }
 
@@ -127,26 +182,12 @@ export function MatchPage() {
 
       {/* 배틀 카드 */}
       <div className="grid grid-cols-[1fr_32px_1fr] gap-2 items-stretch">
-        {/* A 카드 */}
-        <button
-          type="button"
-          onClick={() => submitMatch(1)}
-          className="rounded-2xl border border-warm-200 bg-white p-3 text-left transition hover:border-warm-400 hover:-translate-y-0.5 active:scale-95"
-        >
-          {matchup.left.imageUrl ? (
-            <img src={matchup.left.imageUrl} alt={matchup.left.title} className="w-full rounded-xl object-cover aspect-square mb-2" />
-          ) : (
-            <div className="w-full rounded-xl bg-warm-100 aspect-square mb-2 flex items-center justify-center text-3xl">🎵</div>
-          )}
-          <p className="truncate text-xs font-medium text-warm-800">{matchup.left.title}</p>
-          <p className="truncate text-[10px] text-warm-400 mb-2">{matchup.left.artist}</p>
-          <div className="flex items-center justify-between gap-1">
-            <span className="rounded-full bg-warm-100 px-1.5 py-0.5 text-[9px] text-warm-500">
-              {Math.round(matchup.leftRating.rating)}
-            </span>
-            <PlayButton song={matchup.left} />
-          </div>
-        </button>
+        <MatchCard
+          song={matchup.left}
+          rating={matchup.leftRating.rating}
+          onSelect={() => submitMatch(1)}
+          selectLabel="A 선택"
+        />
 
         {/* 중간 VS */}
         <div className="flex flex-col items-center justify-center gap-1.5">
@@ -165,26 +206,12 @@ export function MatchPage() {
           )}
         </div>
 
-        {/* B 카드 */}
-        <button
-          type="button"
-          onClick={() => submitMatch(0)}
-          className="rounded-2xl border border-warm-200 bg-white p-3 text-left transition hover:border-warm-400 hover:-translate-y-0.5 active:scale-95"
-        >
-          {matchup.right.imageUrl ? (
-            <img src={matchup.right.imageUrl} alt={matchup.right.title} className="w-full rounded-xl object-cover aspect-square mb-2" />
-          ) : (
-            <div className="w-full rounded-xl bg-warm-100 aspect-square mb-2 flex items-center justify-center text-3xl">🎵</div>
-          )}
-          <p className="truncate text-xs font-medium text-warm-800">{matchup.right.title}</p>
-          <p className="truncate text-[10px] text-warm-400 mb-2">{matchup.right.artist}</p>
-          <div className="flex items-center justify-between gap-1">
-            <span className="rounded-full bg-warm-100 px-1.5 py-0.5 text-[9px] text-warm-500">
-              {Math.round(matchup.rightRating.rating)}
-            </span>
-            <PlayButton song={matchup.right} />
-          </div>
-        </button>
+        <MatchCard
+          song={matchup.right}
+          rating={matchup.rightRating.rating}
+          onSelect={() => submitMatch(0)}
+          selectLabel="B 선택"
+        />
       </div>
 
       {/* 재생 상태 / 에러 */}
