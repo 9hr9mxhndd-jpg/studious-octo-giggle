@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { convergenceFromMatches } from "../lib/elo";
 import { getUserPlaylists, importPlaylistTracks } from "../lib/spotify";
@@ -26,6 +26,56 @@ type ResumeAction = {
   to: "/bucket" | "/match" | "/ranking";
 };
 
+function getResumeAction({
+  songCount,
+  classifiedSongCount,
+  matchesCount,
+}: {
+  songCount: number;
+  classifiedSongCount: number;
+  matchesCount: number;
+}): ResumeAction | undefined {
+  if (songCount === 0) return undefined;
+
+  const unclassifiedSongCount = songCount - classifiedSongCount;
+  const sortingReady = classifiedSongCount >= 2;
+  const rankingReady =
+    classifiedSongCount > 0 &&
+    unclassifiedSongCount === 0 &&
+    matchesCount > 0 &&
+    convergenceFromMatches(matchesCount).value >= 80;
+
+  if (unclassifiedSongCount > 0) {
+    return {
+      to: "/bucket",
+      cta: "티어 분류 계속",
+      description: `${classifiedSongCount}/${songCount}곡 분류 완료`,
+    };
+  }
+
+  if (rankingReady) {
+    return {
+      to: "/ranking",
+      cta: "랭킹 확인",
+      description: `${matchesCount}회 비교 완료 · 현재 랭킹 보기`,
+    };
+  }
+
+  if (sortingReady) {
+    return {
+      to: "/match",
+      cta: "소팅 계속",
+      description: `${matchesCount}회 비교 완료 · 더 정확하게 정렬하기`,
+    };
+  }
+
+  return {
+    to: "/ranking",
+    cta: "랭킹 확인",
+    description: "현재까지의 결과 보기",
+  };
+}
+
 export function LandingPage() {
   const navigate = useNavigate();
   const {
@@ -39,6 +89,7 @@ export function LandingPage() {
     setActiveSource,
     activeSource,
     songs,
+    ratings,
     matches,
   } = useAppStore();
 
@@ -72,74 +123,98 @@ export function LandingPage() {
   }, [user, auth?.accessToken, playlists.length, setPlaylists]);
 
   const selectedPlaylist = playlists.find((p) => p.id === selectedId);
-  const hasResume = Boolean(activeSource && songs.length > 0);
-  const activeSongs = activeSource
-    ? songs.filter((song) => song.playlistId === activeSource.id)
-    : [];
+  const hasResume = Boolean(activeSource);
+  const activeSongs = useMemo(
+    () =>
+      activeSource
+        ? songs.filter((song) => song.playlistId === activeSource.id)
+        : [],
+    [activeSource, songs],
+  );
   const activeSourceSongCount = activeSongs.length;
   const classifiedSongCount = activeSongs.filter(
     (song) => song.tier !== undefined,
   ).length;
-  const unclassifiedSongCount = activeSongs.length - classifiedSongCount;
+  const selectedSongs = useMemo(
+    () =>
+      selectedId ? songs.filter((song) => song.playlistId === selectedId) : [],
+    [selectedId, songs],
+  );
   const selectedPlaylistSongCount = selectedPlaylist
     ? getSourceSongCount(selectedPlaylist.id, songs)
     : 0;
+  const selectedClassifiedSongCount = selectedSongs.filter(
+    (song) => song.tier !== undefined,
+  ).length;
   const selectedPlaylistAppTrackCount =
     selectedPlaylist && activeSource?.id === selectedPlaylist.id
       ? activeSource.trackCount || selectedPlaylistSongCount
       : selectedPlaylistSongCount;
   const selectedPlaylistDisplayCount =
     selectedPlaylistAppTrackCount || selectedPlaylist?.trackCount || 0;
-  const sortingReady = classifiedSongCount >= 2;
-  const rankingReady =
-    classifiedSongCount > 0 &&
-    unclassifiedSongCount === 0 &&
-    matches.length > 0 &&
-    convergenceFromMatches(matches.length).value >= 80;
-
-  const resumeAction: ResumeAction | undefined = hasResume
-    ? unclassifiedSongCount > 0
-      ? {
-          to: "/bucket",
-          cta: "티어 분류 계속",
-          description: `${classifiedSongCount}/${activeSourceSongCount || activeSource?.trackCount || 0}곡 분류 완료`,
-        }
-      : rankingReady
-        ? {
-            to: "/ranking",
-            cta: "랭킹 확인",
-            description: `${matches.length}회 비교 완료 · 현재 랭킹 보기`,
-          }
-        : sortingReady
-          ? {
-              to: "/match",
-              cta: "소팅 계속",
-              description: `${matches.length}회 비교 완료 · 더 정확하게 정렬하기`,
-            }
-          : {
-              to: "/ranking",
-              cta: "랭킹 확인",
-              description: "현재까지의 결과 보기",
-            }
+  const activeResumeAction = activeSource
+    ? getResumeAction({
+        songCount: activeSourceSongCount || activeSource.trackCount,
+        classifiedSongCount,
+        matchesCount: matches.length,
+      })
     : undefined;
+  const isSelectedActiveSession = Boolean(
+    selectedId && activeSource?.id === selectedId,
+  );
+  const hasSelectedSessionData =
+    isSelectedActiveSession &&
+    (selectedSongs.length > 0 ||
+      Object.keys(ratings).length > 0 ||
+      matches.length > 0);
+  const selectedResumeAction =
+    isSelectedActiveSession && activeSource
+      ? getResumeAction({
+          songCount: selectedSongs.length || activeSource.trackCount,
+          classifiedSongCount: selectedClassifiedSongCount,
+          matchesCount: matches.length,
+        })
+      : undefined;
+  const primaryAction = hasSelectedSessionData ? selectedResumeAction : undefined;
 
   async function handleStart() {
     if (!selectedId || !selectedPlaylist) return;
+
+    const nextSource: ActiveSource = {
+      id: selectedId,
+      name: selectedPlaylist.name,
+      trackCount: selectedSongs.length || selectedPlaylist.trackCount,
+      imageUrl: selectedPlaylist.imageUrl,
+      isLikedSongs: selectedPlaylist.isLikedSongs,
+    };
+
+    if (hasSelectedSessionData && primaryAction) {
+      selectPlaylist(selectedId);
+      if (
+        !activeSource ||
+        activeSource.id !== nextSource.id ||
+        activeSource.name !== nextSource.name ||
+        activeSource.trackCount !== nextSource.trackCount ||
+        activeSource.imageUrl !== nextSource.imageUrl ||
+        activeSource.isLikedSongs !== nextSource.isLikedSongs
+      ) {
+        setActiveSource(nextSource);
+      }
+      navigate(primaryAction.to);
+      return;
+    }
+
     setStarting(true);
     try {
       const imported = await importPlaylistTracks(
         selectedId,
         auth?.accessToken,
       );
-      if (imported.length > 0) importSongs(imported);
-      const src: ActiveSource = {
-        id: selectedId,
-        name: selectedPlaylist.name,
+      importSongs(imported);
+      setActiveSource({
+        ...nextSource,
         trackCount: imported.length,
-        imageUrl: selectedPlaylist.imageUrl,
-        isLikedSongs: selectedPlaylist.isLikedSongs,
-      };
-      setActiveSource(src);
+      });
       selectPlaylist(selectedId);
       navigate("/bucket");
     } catch (e) {
@@ -150,8 +225,9 @@ export function LandingPage() {
   }
 
   function handleResume() {
-    if (!resumeAction) return;
-    navigate(resumeAction.to);
+    if (!activeResumeAction || !activeSource) return;
+    selectPlaylist(activeSource.id);
+    navigate(activeResumeAction.to);
   }
 
   function handleNewSession() {
@@ -271,7 +347,7 @@ export function LandingPage() {
       </div>
 
       {/* 이전 세션 이어하기 */}
-      {resumeAction && activeSource && (
+      {activeResumeAction && activeSource && (
         <div className="rounded-xl border border-brand-200 bg-brand-50 p-4">
           <div className="mb-3 flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-100 text-base">
@@ -282,7 +358,7 @@ export function LandingPage() {
                 {activeSource.name}
               </p>
               <p className="text-xs text-warm-500">
-                {resumeAction.description}
+                {activeResumeAction.description}
               </p>
             </div>
           </div>
@@ -300,7 +376,7 @@ export function LandingPage() {
               onClick={handleResume}
               className="rounded-lg bg-warm-800 py-2.5 text-xs font-medium text-white transition hover:bg-warm-700"
             >
-              {resumeAction.cta} →
+              {activeResumeAction.cta} →
             </button>
             <button
               type="button"
@@ -316,7 +392,7 @@ export function LandingPage() {
       {/* 소스 선택 */}
       <div>
         <p className="mb-3 text-sm font-medium text-warm-700">
-          {hasResume ? "다른 소스 선택" : "소팅할 플레이리스트 선택"}
+          {hasResume ? "다른 플레이리스트 선택" : "소팅할 플레이리스트 선택"}
         </p>
 
         {loading ? (
@@ -384,13 +460,16 @@ export function LandingPage() {
           <div>
             <p className="text-sm font-medium text-white">
               {selectedPlaylist
-                ? `${selectedPlaylist.name}으로 소팅 시작`
+                ? primaryAction
+                  ? `${selectedPlaylist.name} 이어하기`
+                  : `${selectedPlaylist.name}으로 소팅 시작`
                 : "소스를 선택해주세요"}
             </p>
             {selectedPlaylist && (
               <p className="text-xs text-white/60">
-                {selectedPlaylistDisplayCount.toLocaleString()}곡 ·{" "}
-                {estimateSession(selectedPlaylistDisplayCount)}
+                {primaryAction
+                  ? primaryAction.description
+                  : `${selectedPlaylistDisplayCount.toLocaleString()}곡 · ${estimateSession(selectedPlaylistDisplayCount)}`}
               </p>
             )}
           </div>
