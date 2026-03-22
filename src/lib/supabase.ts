@@ -75,6 +75,12 @@ export function getAuthCallbackErrorMessage(location: Location = window.location
   return rawError ? decodeURIComponent(rawError.replace(/\+/g, ' ')) : undefined;
 }
 
+export function getAuthCallbackErrorCode(location: Location = window.location) {
+  const searchParams = new URLSearchParams(location.search);
+  const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+  return searchParams.get('error_code') ?? hashParams.get('error_code') ?? undefined;
+}
+
 export async function exchangeCodeForSessionIfPresent(location: Location = window.location) {
   if (!supabase) {
     return { errorMessage: 'Supabase 환경변수가 설정되지 않았어요.' };
@@ -109,19 +115,30 @@ export async function exchangeCodeForSessionIfPresent(location: Location = windo
   };
 }
 
-export function getSpotifyLoginTroubleshooting(errorMessage?: string) {
+export function getSpotifyLoginTroubleshooting(
+  errorMessage?: string,
+  errorCode?: string,
+) {
   if (!errorMessage) return undefined;
 
   const normalizedMessage = errorMessage.toLowerCase();
-  if (!normalizedMessage.includes('external provider')) {
+  const normalizedCode = errorCode?.toLowerCase();
+  const isProviderProfileFailure =
+    normalizedMessage.includes('external provider') || normalizedCode === 'unexpected_failure';
+
+  if (!isProviderProfileFailure) {
     return undefined;
   }
 
-  return [
-    'Spotify Developer Dashboard의 Redirect URI는 Supabase 프로젝트의 OAuth Callback URL(https://<project-ref>.supabase.co/auth/v1/callback)이어야 해요.',
-    '앱의 /auth/callback 주소는 Spotify가 아니라 Supabase Auth의 Redirect URLs 허용 목록에만 추가해야 해요.',
-    'Spotify provider의 Client ID / Client Secret이 최근에 바뀌었다면 Supabase Dashboard > Authentication > Providers > Spotify에도 동일하게 다시 저장해주세요.',
-  ];
+  return {
+    title: 'Spotify 계정 정보를 읽는 단계에서 실패했어요.',
+    items: [
+      'Spotify Developer Dashboard → User Management에 지금 로그인한 Spotify 계정 이메일이 등록되어 있는지 먼저 확인해주세요.',
+      '개발 모드 Spotify 앱이라면 앱 소유자 계정이 Spotify Premium 상태인지 확인해주세요. 2026년 3월부터는 기존 개발 모드 앱에도 Premium이 필요할 수 있어요.',
+      'Supabase Dashboard → Authentication → Providers → Spotify에 저장된 Client ID / Client Secret이 Spotify Developer Dashboard의 현재 값과 정확히 같은지 다시 저장해주세요.',
+      'Spotify Redirect URI에는 Supabase 프로젝트 콜백 URL(https://<project-ref>.supabase.co/auth/v1/callback)만 넣고, 앱의 /auth/callback 주소는 Supabase Redirect URLs 허용 목록에만 넣어주세요.',
+    ],
+  };
 }
 
 export async function signInWithSpotify() {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   exchangeCodeForSessionIfPresent,
+  getAuthCallbackErrorCode,
   getAuthCallbackErrorMessage,
   getSpotifyLoginTroubleshooting,
   supabase,
@@ -10,10 +11,11 @@ import {
 export function AuthCallbackPage() {
   const navigate = useNavigate();
   const [errorMessage, setErrorMessage] = useState<string | undefined>(() => getAuthCallbackErrorMessage());
+  const [errorCode] = useState<string | undefined>(() => getAuthCallbackErrorCode());
   const [exchanging, setExchanging] = useState(Boolean(supabase) && !getAuthCallbackErrorMessage());
   const troubleshooting = useMemo(
-    () => getSpotifyLoginTroubleshooting(errorMessage),
-    [errorMessage],
+    () => getSpotifyLoginTroubleshooting(errorMessage, errorCode),
+    [errorCode, errorMessage],
   );
 
   useEffect(() => {
@@ -60,12 +62,18 @@ export function AuthCallbackPage() {
   if (errorMessage) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-warm-50 px-6">
-        <p className="max-w-lg text-center text-sm text-red-500">{errorMessage}</p>
+        <div className="max-w-xl rounded-3xl border border-red-200 bg-white p-6 text-left shadow-sm">
+          <p className="text-sm font-semibold text-red-600">Spotify 로그인을 완료하지 못했어요.</p>
+          {errorCode ? (
+            <p className="mt-2 text-xs text-warm-400">오류 코드: {errorCode}</p>
+          ) : null}
+          <p className="mt-3 text-sm leading-6 text-red-500">{errorMessage}</p>
+        </div>
         {troubleshooting ? (
           <div className="max-w-xl rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left text-xs leading-6 text-amber-900">
-            <p className="mb-2 font-semibold">확인해볼 설정</p>
+            <p className="mb-2 font-semibold">{troubleshooting.title}</p>
             <ul className="list-disc space-y-1 pl-5">
-              {troubleshooting.map((item) => (
+              {troubleshooting.items.map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
