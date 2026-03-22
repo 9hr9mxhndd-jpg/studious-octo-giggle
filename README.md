@@ -24,7 +24,7 @@ npm run dev
 
 The Vite dev server is configured to run on `http://localhost:3000` so it matches the local Spotify/Supabase callback flow.
 
-Create a `.env` from `.env.example` and provide your Supabase project URL and anon key. `VITE_SUPABASE_REDIRECT_TO` should be the site origin for your deployment; the app automatically sends Spotify OAuth back through `/auth/callback`. For preview deployments, add the resulting callback URL to your Supabase and Spotify OAuth settings. After Spotify approval, the app automatically forwards authenticated users to `/setup/playlist`.
+Create a `.env` from `.env.example` and provide your Supabase project URL and anon key. `VITE_SUPABASE_REDIRECT_TO` should be the site origin for your deployment; the app automatically sends Spotify OAuth back through `/auth/callback`. For preview deployments, add the resulting callback URL to your Supabase and Spotify OAuth settings. After Spotify approval, the app returns authenticated users to `/`, where they select a playlist and then continue to `/bucket`.
 
 ## Supabase + Spotify setup notes
 
@@ -44,7 +44,7 @@ Create a `.env` from `.env.example` and provide your Supabase project URL and an
 - `src/lib/spotify.ts` fetches Spotify profile, playlists, tracks, and lazy-loads the Web Playback SDK.
 - `src/lib/elo.ts` contains rating initialization, K-factor logic, matchmaking, and convergence helpers.
 - `src/store/appStore.ts` stores UI state in Zustand and syncs changes to Supabase instead of browser localStorage.
-- `src/pages/*` implements landing, playlist setup, bucket setup, match loop, and ranking views.
+- `src/pages/*` implements the auth callback, landing/import flow, bucket setup, match loop, and ranking views.
 
 ## Reconnection verification checklist
 
