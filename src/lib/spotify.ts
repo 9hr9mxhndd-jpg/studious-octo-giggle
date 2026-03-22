@@ -1,5 +1,6 @@
 import { demoPlaylists, demoSongs } from './sampleData';
 import { buildSongId } from './songIdentity';
+import { persistSpotifyToken, supabase } from './supabase';
 import type { PlaylistSummary, Song, SpotifyProduct } from '../types';
 
 const API_ROOT = 'https://api.spotify.com/v1';
@@ -48,11 +49,24 @@ interface SpotifyPlaylistItem {
   tracks?: { total?: number | null } | null;
 }
 
-async function spotifyFetch<T>(path: string, accessToken: string): Promise<T> {
+async function spotifyFetch<T>(path: string, accessToken: string, _isRetry = false): Promise<T> {
   const url = path.startsWith('http') ? path : `${API_ROOT}${path}`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
 
   if (!res.ok) {
+    // 401 토큰 만료 시: Supabase refreshSession으로 provider_token 갱신 후 1회 재시도 (BUG-02 fix)
+    if (res.status === 401 && !_isRetry && supabase) {
+      const { data } = await supabase.auth.refreshSession().catch(() => ({ data: { session: null } }));
+      const newToken = data.session?.provider_token;
+      if (newToken && newToken !== accessToken) {
+        const userId = data.session?.user?.id;
+        if (userId) {
+          void persistSpotifyToken(userId, newToken).catch(() => {});
+        }
+        return spotifyFetch<T>(path, newToken, true);
+      }
+    }
+
     const retryAfter = res.headers.get('Retry-After');
     const msg =
       res.status === 401 ? 'Spotify 세션이 만료됐어요. 다시 로그인해주세요.' :
@@ -189,24 +203,3 @@ export async function importPlaylistTracks(playlistId: string, accessToken?: str
   return songs;
 }
 
-export function loadSpotifySdk(): Promise<boolean> {
-  if (typeof window === 'undefined') return Promise.resolve(false);
-  if ((window as Window & { Spotify?: unknown }).Spotify) return Promise.resolve(true);
-
-  const existing = document.querySelector<HTMLScriptElement>('script[src="https://sdk.scdn.co/spotify-player.js"]');
-  if (existing) {
-    return new Promise((resolve) => {
-      existing.addEventListener('load', () => resolve(true), { once: true });
-      existing.addEventListener('error', () => resolve(false), { once: true });
-    });
-  }
-
-  return new Promise((resolve) => {
-    const script = document.createElement('script');
-    script.src = 'https://sdk.scdn.co/spotify-player.js';
-    script.async = true;
-    script.onload = () => resolve(true);
-    script.onerror = () => resolve(false);
-    document.body.appendChild(script);
-  });
-}
