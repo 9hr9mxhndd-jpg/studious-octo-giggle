@@ -69,12 +69,19 @@ alter table public.songs enable row level security;
 alter table public.ratings enable row level security;
 alter table public.matches enable row level security;
 
+drop policy if exists "sorter state owned by user" on public.sorter_state;
+create policy "sorter state owned by user" on public.sorter_state
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "songs owned by user" on public.songs;
 create policy "songs owned by user" on public.songs
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "ratings owned by user" on public.ratings;
 create policy "ratings owned by user" on public.ratings
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "matches owned by user" on public.matches;
 create policy "matches owned by user" on public.matches
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
