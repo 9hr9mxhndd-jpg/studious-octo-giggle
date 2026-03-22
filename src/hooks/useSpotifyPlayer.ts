@@ -7,7 +7,6 @@ import {
   transferPlayback,
   type SpotifyPlayer,
 } from '../lib/spotifyPlayer';
-import { loadSpotifyToken } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
 
 interface PlayerState {
@@ -17,6 +16,14 @@ interface PlayerState {
   currentTrackId: string | null;
   error: string | null;
 }
+
+const INITIAL_PLAYER_STATE: PlayerState = {
+  ready: false,
+  deviceId: null,
+  playing: false,
+  currentTrackId: null,
+  error: null,
+};
 
 const RETRY_WAIT_MS = 350;
 
@@ -28,26 +35,24 @@ function wait(ms: number) {
 
 export function useSpotifyPlayer() {
   const user = useAppStore((s) => s.user);
+  const accessToken = useAppStore((s) => s.auth?.accessToken);
   const playerRef = useRef<SpotifyPlayer | null>(null);
   const activatedRef = useRef(false);
-  const [state, setState] = useState<PlayerState>({
-    ready: false,
-    deviceId: null,
-    playing: false,
-    currentTrackId: null,
-    error: null,
-  });
+  const [state, setState] = useState<PlayerState>(INITIAL_PLAYER_STATE);
 
   useEffect(() => {
-    if (!user?.isPremium) return;
+    if (!user?.isPremium) {
+      setState(INITIAL_PLAYER_STATE);
+      return;
+    }
 
-    const token = loadSpotifyToken();
-    if (!token) {
-      setState((s) => ({ ...s, error: 'Spotify 토큰이 없어요. 재로그인 해주세요.' }));
+    if (!accessToken) {
+      setState({ ...INITIAL_PLAYER_STATE, error: 'Spotify 토큰이 없어요. 재로그인 해주세요.' });
       return;
     }
 
     let cancelled = false;
+    setState(INITIAL_PLAYER_STATE);
 
     loadSdk().then(() => {
       if (cancelled) return;
@@ -55,8 +60,7 @@ export function useSpotifyPlayer() {
       const player = new window.Spotify.Player({
         name: 'Sorter Web Player',
         getOAuthToken: (cb) => {
-          const t = loadSpotifyToken();
-          if (t) cb(t);
+          if (accessToken) cb(accessToken);
         },
         volume: 0.7,
       });
@@ -114,7 +118,7 @@ export function useSpotifyPlayer() {
       playerRef.current?.disconnect();
       playerRef.current = null;
     };
-  }, [user?.isPremium]);
+  }, [accessToken, user?.isPremium]);
 
   async function activatePlayerElement() {
     if (!playerRef.current?.activateElement || activatedRef.current) return;
@@ -144,7 +148,7 @@ export function useSpotifyPlayer() {
   }
 
   async function togglePlay(spotifyTrackId: string) {
-    const token = loadSpotifyToken();
+    const token = accessToken;
     const deviceId = state.deviceId;
     if (!token || !deviceId) return;
 

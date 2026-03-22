@@ -45,3 +45,11 @@ Create a `.env` from `.env.example` and provide your Supabase project URL and an
 - `src/lib/elo.ts` contains rating initialization, K-factor logic, matchmaking, and convergence helpers.
 - `src/store/appStore.ts` stores UI state in Zustand and syncs changes to Supabase instead of browser localStorage.
 - `src/pages/*` implements landing, playlist setup, bucket setup, match loop, and ranking views.
+
+## Reconnection verification checklist
+
+After a tab refresh restores a previously synced `spotify_provider_token`, verify the shared `useSpotifyPlayer` hook resets cleanly in both premium playback screens:
+
+- `BucketSetupPage`: immediately after reconnect, `ready` should return to `false` during SDK setup, then flip to `true` once the player is ready, and any stale `error` message from the previous session should clear.
+- `MatchPage`: immediately after reconnect, `ready` should follow the same reset/reconnect cycle and `error` should stay `null` unless the new connection actually fails.
+- If no token is restored, both pages should show the missing-token error without reusing a stale `ready`, `deviceId`, or `currentTrackId` state.

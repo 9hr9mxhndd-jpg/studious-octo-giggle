@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import { AppShell } from './components/AppShell';
 import { loadUserAppState, subscribeToUserAppState } from './lib/appSync';
 import { getSpotifyProduct } from './lib/spotify';
-import { clearSpotifyToken, loadSpotifyToken, profileFromSession, sessionToAuthSnapshot, supabase } from './lib/supabase';
+import { clearSpotifyToken, loadSpotifyToken, profileFromSession, saveSpotifyToken, sessionToAuthSnapshot, supabase } from './lib/supabase';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { BucketSetupPage } from './pages/BucketSetupPage';
 import { LandingPage } from './pages/LandingPage';
@@ -99,6 +99,7 @@ export default function App() {
         replaceRemoteState(remoteState);
         const remoteToken = remoteState.spotifyProviderToken ?? loadSpotifyToken();
         if (remoteToken) {
+          saveSpotifyToken(remoteToken);
           setAuth({ ...useAppStore.getState().auth, accessToken: remoteToken });
           const product = await getSpotifyProduct(remoteToken);
           if (!cancelled && user) {
