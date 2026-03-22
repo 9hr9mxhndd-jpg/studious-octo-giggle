@@ -6,6 +6,7 @@ import type {
   MatchRecord,
   RatingRecord,
   AppLocale,
+  SongId,
 } from "../types";
 import type { ActiveSource } from "../store/appStore";
 
@@ -67,7 +68,7 @@ export interface RemoteAppState {
   };
   lastMatchedAt: Record<string, number>;
   songs: Song[];
-  ratings: Record<string, RatingRecord>;
+  ratings: Record<SongId, RatingRecord>;
   matches: MatchRecord[];
   spotifyProviderToken?: string;
 }
@@ -90,6 +91,14 @@ function syncActiveSourceTrackCount(
     ...activeSource,
     trackCount: syncedTrackCount,
   };
+}
+
+function buildLastMatchedAt(matches: MatchRecord[]) {
+  return matches.reduce<Record<string, number>>((acc, match, index) => {
+    const pairKey = [match.leftSongId, match.rightSongId].sort().join("|");
+    acc[pairKey] = matches.length - index - 1;
+    return acc;
+  }, {});
 }
 
 function mapSongRow(row: SongRow): Song {
@@ -125,7 +134,7 @@ function mapSong(song: Song, userId: string): SongRow {
   };
 }
 
-function mapRating(songId: string, rating: RatingRecord, userId: string) {
+function mapRating(songId: SongId, rating: RatingRecord, userId: string) {
   return {
     user_id: userId,
     song_id: songId,
@@ -217,6 +226,7 @@ export async function loadUserAppState(
     } satisfies MatchRecord;
   });
   const state = stateResult.data;
+  const derivedLastMatchedAt = buildLastMatchedAt(matches);
 
   return {
     locale: state?.locale ?? "ko",
@@ -227,7 +237,10 @@ export async function loadUserAppState(
       songs,
     ),
     likedSongsImport: state?.liked_songs_import ?? undefined,
-    lastMatchedAt: state?.last_matched_at ?? {},
+    lastMatchedAt:
+      Object.keys(derivedLastMatchedAt).length > 0
+        ? derivedLastMatchedAt
+        : state?.last_matched_at ?? {},
     songs,
     ratings,
     matches,
@@ -281,7 +294,8 @@ export async function saveSpotifyProviderToken(userId: string, token?: string) {
 export async function replaceLibrary(
   userId: string,
   songs: Song[],
-  ratings: Record<string, RatingRecord>,
+  ratings: Record<SongId, RatingRecord>,
+  matches: MatchRecord[] = [],
 ) {
   if (!supabase) return;
   const deleteMatches = supabase.from("matches").delete().eq("user_id", userId);
@@ -314,12 +328,19 @@ export async function replaceLibrary(
       .insert(ratingRows);
     if (ratingInsertError) throw ratingInsertError;
   }
+
+  if (matches.length > 0) {
+    const { error: matchInsertError } = await supabase
+      .from("matches")
+      .insert(matches.map((match) => mapMatch(match, userId)));
+    if (matchInsertError) throw matchInsertError;
+  }
 }
 
 export async function appendLibrary(
   userId: string,
   songs: Song[],
-  ratings: Record<string, RatingRecord>,
+  ratings: Record<SongId, RatingRecord>,
 ) {
   if (!supabase || songs.length === 0) return;
   const { error: songError } = await supabase

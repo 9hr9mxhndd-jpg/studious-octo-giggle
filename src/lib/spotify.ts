@@ -1,4 +1,5 @@
 import { demoPlaylists, demoSongs } from './sampleData';
+import { buildSongId } from './songIdentity';
 import type { PlaylistSummary, Song, SpotifyProduct } from '../types';
 
 const API_ROOT = 'https://api.spotify.com/v1';
@@ -84,7 +85,7 @@ async function fetchAllPages<T>(
 function normalizeTrack(track: SpotifyTrack, playlistId: string, _index: number): Song | undefined {
   if (!track.id || !track.name) return undefined;
   return {
-    id: crypto.randomUUID(),
+    id: buildSongId(playlistId, track.id),
     spotifyTrackId: track.id,
     playlistId,
     title: track.name,

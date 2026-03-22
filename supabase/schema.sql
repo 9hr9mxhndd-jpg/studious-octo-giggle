@@ -27,7 +27,7 @@ before update on public.sorter_state
 for each row execute function public.set_sorter_state_updated_at();
 
 create table if not exists public.songs (
-  id uuid primary key default gen_random_uuid(),
+  id text primary key,
   user_id uuid not null references auth.users(id) on delete cascade,
   spotify_track_id text not null,
   playlist_id text not null,
@@ -46,7 +46,7 @@ create table if not exists public.songs (
 create table if not exists public.ratings (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  song_id uuid not null references public.songs(id) on delete cascade,
+  song_id text not null references public.songs(id) on delete cascade,
   rating numeric not null,
   matches_played integer not null default 0,
   last_delta numeric not null default 0,
@@ -57,8 +57,8 @@ create table if not exists public.ratings (
 create table if not exists public.matches (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
-  left_song_id uuid not null references public.songs(id) on delete cascade,
-  right_song_id uuid not null references public.songs(id) on delete cascade,
+  left_song_id text not null references public.songs(id) on delete cascade,
+  right_song_id text not null references public.songs(id) on delete cascade,
   outcome numeric not null,
   rating_gap numeric not null,
   created_at timestamptz not null default now()

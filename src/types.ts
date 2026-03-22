@@ -1,4 +1,7 @@
 import type { Locale } from "./lib/i18n";
+import type { SongId } from "./lib/songIdentity";
+
+export type { SongId } from "./lib/songIdentity";
 
 export type Tier = 1 | 2 | 3;
 
@@ -15,7 +18,7 @@ export interface PlaylistSummary {
 }
 
 export interface Song {
-  id: string;
+  id: SongId;
   spotifyTrackId: string;
   playlistId: string;
   title: string;
@@ -29,7 +32,7 @@ export interface Song {
 }
 
 export interface RatingRecord {
-  songId: string;
+  songId: SongId;
   rating: number;
   matchesPlayed: number;
   lastDelta: number;
@@ -37,8 +40,8 @@ export interface RatingRecord {
 
 export interface MatchRecord {
   id: string;
-  leftSongId: string;
-  rightSongId: string;
+  leftSongId: SongId;
+  rightSongId: SongId;
   outcome: number;
   ratingGap: number;
   createdAt: string;

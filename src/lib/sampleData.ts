@@ -1,3 +1,4 @@
+import { buildSongId } from './songIdentity';
 import type { PlaylistSummary, Song } from '../types';
 
 export const demoPlaylists: PlaylistSummary[] = [
@@ -36,7 +37,7 @@ export const demoSongs: Song[] = [
   ['8', 'Slow Burn', 'Kacey Musgraves', 'Golden Hour'],
   ['9', 'Instant Crush', 'Daft Punk', 'Random Access Memories'],
 ].map(([id, title, artist, album], index) => ({
-  id: `song-${id}`,
+  id: buildSongId('demo-discover-weekly', `spotify-${id}`),
   spotifyTrackId: `spotify-${id}`,
   playlistId: 'demo-discover-weekly',
   title,

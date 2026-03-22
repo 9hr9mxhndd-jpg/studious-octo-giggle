@@ -4,6 +4,7 @@ import {
   getInitialRatingForTier,
   resolveMatchResult,
 } from "../lib/elo";
+import { buildSongNaturalKey } from "../lib/songIdentity";
 import {
   appendLibrary,
   clearUserAppState,
@@ -20,6 +21,7 @@ import type {
   PlaylistSummary,
   RatingRecord,
   Song,
+  SongId,
   Tier,
   UserProfile,
 } from "../types";
@@ -46,7 +48,7 @@ interface AppState {
   playlists: PlaylistSummary[];
   songs: Song[];
   likedSongsImport?: LikedSongsImportState;
-  ratings: Record<string, RatingRecord>;
+  ratings: Record<SongId, RatingRecord>;
   matches: MatchRecord[];
   selectedPlaylistId?: string;
   activeSource?: ActiveSource;
@@ -63,21 +65,104 @@ interface AppState {
   // 새 플레이리스트를 선택해 라이브러리를 통째로 교체할 때만 사용합니다.
   importSongs: (songs: Song[]) => void;
   appendSongs: (songs: Song[]) => void;
-  assignTier: (songId: string, tier: Tier, uncertain: boolean) => void;
+  assignTier: (songId: SongId, tier: Tier, uncertain: boolean) => void;
   submitMatch: (leftScore: number) => void;
   resetFlow: () => void;
   replaceRemoteState: (state: RemoteAppState) => void;
   clearSyncedState: () => void;
 }
 
-function buildRatings(songs: Song[]) {
-  return songs.reduce<Record<string, RatingRecord>>((acc, song) => {
-    acc[song.id] = {
-      songId: song.id,
-      rating: 1500,
-      matchesPlayed: 0,
-      lastDelta: 0,
+function getDefaultRating(songId: SongId): RatingRecord {
+  return {
+    songId,
+    rating: 1500,
+    matchesPlayed: 0,
+    lastDelta: 0,
+  };
+}
+
+function buildRatings(
+  songs: Song[],
+  existingRatings: Record<SongId, RatingRecord> = {},
+) {
+  return songs.reduce<Record<SongId, RatingRecord>>((acc, song) => {
+    acc[song.id] = existingRatings[song.id] ?? getDefaultRating(song.id);
+    return acc;
+  }, {});
+}
+
+function mergeSongsWithExistingState(nextSongs: Song[], existingSongs: Song[]) {
+  const existingById = new Map(existingSongs.map((song) => [song.id, song]));
+  const existingByNaturalKey = new Map(
+    existingSongs.map((song) => [buildSongNaturalKey(song), song]),
+  );
+
+  return nextSongs.map((song) => {
+    const existingSong =
+      existingById.get(song.id) ??
+      existingByNaturalKey.get(buildSongNaturalKey(song));
+
+    if (!existingSong) return song;
+
+    return {
+      ...song,
+      tier: existingSong.tier,
+      uncertain: existingSong.uncertain,
     };
+  });
+}
+
+function buildSongIdRemap(nextSongs: Song[], existingSongs: Song[]) {
+  const nextSongIdByNaturalKey = new Map(
+    nextSongs.map((song) => [buildSongNaturalKey(song), song.id]),
+  );
+
+  return existingSongs.reduce<Record<SongId, SongId>>((acc, song) => {
+    const nextSongId = nextSongIdByNaturalKey.get(buildSongNaturalKey(song));
+    if (nextSongId) {
+      acc[song.id] = nextSongId;
+    }
+    return acc;
+  }, {});
+}
+
+function remapRatings(
+  ratings: Record<SongId, RatingRecord>,
+  songIdRemap: Record<SongId, SongId>,
+) {
+  return Object.entries(ratings).reduce<Record<SongId, RatingRecord>>(
+    (acc, [songId, rating]) => {
+      const nextSongId = songIdRemap[songId] ?? songId;
+      acc[nextSongId] = {
+        ...rating,
+        songId: nextSongId,
+      };
+      return acc;
+    },
+    {},
+  );
+}
+
+function remapMatches(matches: MatchRecord[], songIdRemap: Record<SongId, SongId>) {
+  return matches.map((match) => ({
+    ...match,
+    leftSongId: songIdRemap[match.leftSongId] ?? match.leftSongId,
+    rightSongId: songIdRemap[match.rightSongId] ?? match.rightSongId,
+  }));
+}
+
+function filterMatchesForSongs(matches: MatchRecord[], songs: Song[]) {
+  const validSongIds = new Set(songs.map((song) => song.id));
+  return matches.filter(
+    (match) =>
+      validSongIds.has(match.leftSongId) && validSongIds.has(match.rightSongId),
+  );
+}
+
+function buildLastMatchedAt(matches: MatchRecord[]) {
+  return matches.reduce<Record<string, number>>((acc, match, index) => {
+    const pairKey = [match.leftSongId, match.rightSongId].sort().join("|");
+    acc[pairKey] = matches.length - index - 1;
     return acc;
   }, {});
 }
@@ -164,23 +249,35 @@ export const useAppStore = create<AppState>()((set, get) => ({
     syncSessionState(get());
   },
   importSongs: (songs) => {
-    const nextRatings = buildRatings(songs);
+    const currentState = get();
+    const nextSongs = mergeSongsWithExistingState(songs, currentState.songs);
+    const songIdRemap = buildSongIdRemap(nextSongs, currentState.songs);
+    const nextRatings = buildRatings(
+      nextSongs,
+      remapRatings(currentState.ratings, songIdRemap),
+    );
+    const nextMatches = filterMatchesForSongs(
+      remapMatches(currentState.matches, songIdRemap),
+      nextSongs,
+    );
+    const nextLastMatchedAt = buildLastMatchedAt(nextMatches);
+
     set((state) => ({
-      songs,
+      songs: nextSongs,
       ratings: nextRatings,
-      matches: [],
-      lastMatchedAt: {},
-      activeSource: syncActiveSourceTrackCount(state.activeSource, songs),
+      matches: nextMatches,
+      lastMatchedAt: nextLastMatchedAt,
+      activeSource: syncActiveSourceTrackCount(state.activeSource, nextSongs),
     }));
-    const state = get();
-    const userId = state.user?.id;
+    const nextState = get();
+    const userId = nextState.user?.id;
     if (!userId) return;
     void Promise.all([
-      replaceLibrary(userId, songs, nextRatings),
+      replaceLibrary(userId, nextSongs, nextRatings, nextMatches),
       saveSessionState(userId, {
-        activeSource: state.activeSource,
-        lastMatchedAt: {},
-        likedSongsImport: state.likedSongsImport,
+        activeSource: nextState.activeSource,
+        lastMatchedAt: nextLastMatchedAt,
+        likedSongsImport: nextState.likedSongsImport,
       }),
     ]).catch((error) => {
       console.error("Failed to sync imported songs.", error);
@@ -217,12 +314,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       ratings: {
         ...state.ratings,
         [songId]: {
-          ...(state.ratings[songId] ?? {
-            songId,
-            matchesPlayed: 0,
-            lastDelta: 0,
-            rating: 1500,
-          }),
+          ...(state.ratings[songId] ?? getDefaultRating(songId)),
           rating: getInitialRatingForTier(tier),
         },
       },
