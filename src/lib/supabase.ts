@@ -106,10 +106,9 @@ export function getSpotifyLoginTroubleshooting(errorMessage?: string) {
   }
 
   return [
-    '지금 보이는 설정처럼 Redirect URL은 대체로 맞을 가능성이 높아요. 대신 Spotify Developer Dashboard > User Management에 실제 로그인에 사용하는 Spotify 계정을 추가했는지 먼저 확인해주세요.',
-    'Spotify Development mode 앱은 2026년 3월 9일부터 기존 앱도 Premium 보유한 앱 소유자와 허용된 사용자만 안정적으로 사용할 수 있어요. 앱 소유자 Premium 상태와 테스트 계정 허용 목록을 확인해주세요.',
-    'Supabase Dashboard > Authentication > Providers > Spotify의 Client ID / Client Secret이 Spotify Developer Dashboard의 현재 값과 완전히 같은지도 다시 저장해서 맞춰주세요.',
-    'Spotify Redirect URIs에는 Supabase callback URL(https://<project-ref>.supabase.co/auth/v1/callback)이 포함되어야 하고, 앱의 /auth/callback은 Supabase Redirect URLs에도 등록되어 있어야 해요.',
+    'Spotify Developer Dashboard의 Redirect URI는 Supabase 프로젝트의 OAuth Callback URL(https://<project-ref>.supabase.co/auth/v1/callback)이어야 해요.',
+    '앱의 /auth/callback 주소는 Spotify가 아니라 Supabase Auth의 Redirect URLs 허용 목록에만 추가해야 해요.',
+    'Spotify provider의 Client ID / Client Secret이 최근에 바뀌었다면 Supabase Dashboard > Authentication > Providers > Spotify에도 동일하게 다시 저장해주세요.',
   ];
 }
 
