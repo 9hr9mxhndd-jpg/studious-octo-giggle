@@ -41,7 +41,10 @@ interface SpotifyProfileResponse {
   product?: SpotifyProduct;
 }
 
-let spotifyClientIdPromise: Promise<string> | undefined;
+let spotifyClientConfigPromise: Promise<{
+  clientId: string;
+  directRedirectConfigured: boolean;
+}> | undefined;
 
 function isBrowser() {
   return typeof window !== 'undefined';
@@ -88,26 +91,42 @@ async function createCodeChallenge(verifier: string) {
   return toBase64Url(new Uint8Array(digest));
 }
 
-async function getSpotifyClientId() {
-  if (!spotifyClientIdPromise) {
-    spotifyClientIdPromise = fetch(`${CLIENT_ID_ENDPOINT}?redirect_uri=${encodeURIComponent(getSpotifyRedirectUrl())}`)
+async function getSpotifyClientConfig() {
+  if (!spotifyClientConfigPromise) {
+    spotifyClientConfigPromise = fetch(`${CLIENT_ID_ENDPOINT}?redirect_uri=${encodeURIComponent(getSpotifyRedirectUrl())}`)
       .then(async (response) => {
         if (!response.ok) {
           throw new Error('Spotify 로그인 설정을 불러오지 못했어요. 잠시 후 다시 시도해주세요.');
         }
-        const data = (await response.json()) as { clientId?: string };
+        const data = (await response.json()) as {
+          clientId?: string;
+          directRedirectConfigured?: boolean;
+        };
         if (!data.clientId) {
           throw new Error('Spotify Client ID를 확인하지 못했어요.');
         }
-        return data.clientId;
+        return {
+          clientId: data.clientId,
+          directRedirectConfigured: Boolean(data.directRedirectConfigured),
+        };
       })
       .catch((error: unknown) => {
-        spotifyClientIdPromise = undefined;
+        spotifyClientConfigPromise = undefined;
         throw error;
       });
   }
 
-  return spotifyClientIdPromise;
+  return spotifyClientConfigPromise;
+}
+
+export async function isSpotifyDirectRedirectConfigured() {
+  const config = await getSpotifyClientConfig();
+  return config.directRedirectConfigured;
+}
+
+async function getSpotifyClientId() {
+  const config = await getSpotifyClientConfig();
+  return config.clientId;
 }
 
 function getPendingSpotifyAuth() {
@@ -251,7 +270,11 @@ export async function refreshSpotifyDirectAccessToken(currentToken: string) {
 
 export async function signInWithSpotifyDirect() {
   const redirectUri = getSpotifyRedirectUrl();
-  const clientId = await getSpotifyClientId();
+  const { clientId, directRedirectConfigured } = await getSpotifyClientConfig();
+  if (!directRedirectConfigured) {
+    throw new Error('Spotify Redirect URI에 현재 앱의 /auth/callback 주소가 등록되지 않았어요.');
+  }
+
   const codeVerifier = createRandomString(64);
   const codeChallenge = await createCodeChallenge(codeVerifier);
   const state = createRandomString(24);

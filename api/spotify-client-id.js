@@ -9,6 +9,31 @@ const SPOTIFY_SCOPES = [
   'user-modify-playback-state',
 ].join(' ');
 
+function buildAuthorizeUrl(clientId, redirectUri) {
+  const spotifyAuthorizeUrl = new URL('https://accounts.spotify.com/authorize');
+  spotifyAuthorizeUrl.searchParams.set('client_id', clientId);
+  spotifyAuthorizeUrl.searchParams.set('response_type', 'code');
+  spotifyAuthorizeUrl.searchParams.set('redirect_uri', redirectUri);
+  spotifyAuthorizeUrl.searchParams.set('scope', SPOTIFY_SCOPES);
+  spotifyAuthorizeUrl.searchParams.set('code_challenge_method', 'S256');
+  spotifyAuthorizeUrl.searchParams.set('code_challenge', 'redirect-check');
+  spotifyAuthorizeUrl.searchParams.set('state', 'redirect-check');
+  spotifyAuthorizeUrl.searchParams.set('show_dialog', 'true');
+  return spotifyAuthorizeUrl;
+}
+
+async function isRedirectUriConfigured(clientId, redirectUri) {
+  const response = await fetch(buildAuthorizeUrl(clientId, redirectUri), {
+    redirect: 'manual',
+  });
+
+  if (response.status >= 300 && response.status < 400) {
+    return true;
+  }
+
+  return false;
+}
+
 export default async function handler(request, response) {
   const supabaseUrl = process.env.VITE_SUPABASE_URL;
   if (!supabaseUrl) {
@@ -43,8 +68,11 @@ export default async function handler(request, response) {
       return response.status(502).json({ error: 'Spotify client_id missing from redirect.' });
     }
 
+    const directRedirectConfigured = await isRedirectUriConfigured(clientId, redirectUri)
+      .catch(() => false);
+
     response.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate=86400');
-    return response.status(200).json({ clientId });
+    return response.status(200).json({ clientId, directRedirectConfigured });
   } catch (error) {
     return response.status(502).json({
       error: error instanceof Error ? error.message : 'Failed to derive Spotify client id.',

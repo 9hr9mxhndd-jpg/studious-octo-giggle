@@ -1,6 +1,6 @@
 import { createClient, type Session } from '@supabase/supabase-js';
 import type { AuthSnapshot, UserProfile } from '../types';
-import { clearSpotifyDirectSession, signInWithSpotifyDirect } from './spotifyDirectAuth';
+import { clearSpotifyDirectSession, isSpotifyDirectRedirectConfigured, signInWithSpotifyDirect } from './spotifyDirectAuth';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -138,8 +138,39 @@ export function getSpotifyLoginTroubleshooting(
   };
 }
 
+async function signInWithSupabaseSpotify() {
+  if (!supabase) {
+    throw new Error('Supabase 환경변수가 설정되지 않았어요.');
+  }
+
+  const { error } = await supabase.auth.signInWithOAuth({
+    provider: 'spotify',
+    options: {
+      scopes: [
+        'user-read-private',
+        'user-read-email',
+        'playlist-read-private',
+        'playlist-read-collaborative',
+        'user-library-read',
+        'user-read-playback-state',
+        'streaming',
+        'user-modify-playback-state',
+      ].join(' '),
+      redirectTo: getSpotifyRedirectUrl(),
+    },
+  });
+
+  if (error) throw error;
+}
+
 export async function signInWithSpotify() {
-  await signInWithSpotifyDirect();
+  const directConfigured = await isSpotifyDirectRedirectConfigured().catch(() => false);
+  if (directConfigured) {
+    await signInWithSpotifyDirect();
+    return;
+  }
+
+  await signInWithSupabaseSpotify();
 }
 
 export async function signOut() {
