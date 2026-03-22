@@ -42,12 +42,60 @@ Create a `.env` from `.env.example` and provide your Supabase project URL and an
 
 ## Spotify login troubleshooting
 
-If Spotify shows `Error getting user profile from external provider` even though the redirect URLs look correct:
+If Spotify shows `Error getting user profile from external provider`, work through the full matrix below.
 
-1. Open **Spotify Developer Dashboard → User Management** and add the exact Spotify account email that is trying to log in. Development mode apps can still issue OAuth tokens for non-allowlisted users, but Spotify documents that API requests for those users can fail with `403`, which Supabase surfaces as a provider-profile error.
-2. Check whether the Spotify app owner still has **Spotify Premium**. Spotify's February 6, 2026 platform update says this became required for existing Development Mode apps starting **March 9, 2026**.
-3. Re-copy the current Spotify **Client ID** and **Client Secret** into **Supabase → Authentication → Providers → Spotify** and save again.
-4. Verify that the Supabase callback URL is still listed in Spotify Redirect URIs, and that your app's `/auth/callback` URL is still listed in Supabase Redirect URLs. If direct Spotify PKCE is enabled, verify the app `/auth/callback` URL is also listed in Spotify Redirect URIs.
+### A. Callback / redirect mismatch
+
+1. **Default Supabase Social Login flow**: keep the Spotify Developer Dashboard Redirect URI pointed at your Supabase callback URL (`https://<project-ref>.supabase.co/auth/v1/callback`). Do **not** replace it with your app's `/auth/callback` URL in the default flow.
+2. **Supabase Redirect Allow List**: add the exact app callback URL (`https://<your-app-origin>/auth/callback`) to **Supabase Auth → URL Configuration → Redirect URLs**. If you use multiple origins, register each one separately:
+   - local: `http://localhost:3000/auth/callback`
+   - production: `https://studious-octo-giggle-dun.vercel.app/auth/callback`
+   - every preview / custom domain you actually use
+3. **Preview deployment mismatch**: if Vercel preview URLs are used, set `VITE_SUPABASE_REDIRECT_TO` to that preview origin for the deployment; otherwise Supabase can send the user back to a different origin than the one that initiated login.
+4. **Direct Spotify PKCE flow**: only when `VITE_SPOTIFY_DIRECT_AUTH=true` is intentionally enabled should you also add the app's `/auth/callback` URL to Spotify Redirect URIs.
+
+### B. Provider credentials / provider state
+
+1. In **Supabase → Authentication → Providers → Spotify**, confirm Spotify is still enabled.
+2. Re-copy the latest Spotify **Client ID** and **Client Secret** from the Spotify Developer Dashboard into Supabase and click **Save** again.
+3. If the Spotify app was regenerated, transferred, or its secret was rotated, Supabase can keep an old secret and fail during the profile fetch step.
+4. If the app settings were recently edited, re-save Redirect URIs in Spotify as well so the latest value is persisted.
+
+### C. Spotify Development Mode restrictions
+
+1. In **Spotify Developer Dashboard → User Management**, add the exact Spotify account email for every tester who logs in.
+2. If the login works for the owner account but fails for a tester, this is the first thing to verify.
+3. Spotify can issue an OAuth response but still fail later when Supabase tries to fetch `/v1/me`, which then surfaces as this provider-profile error.
+4. Existing Development Mode apps also require the app owner to maintain **Spotify Premium** under Spotify's 2026 platform policy change that took effect on **March 9, 2026**.
+
+### D. Flow-selection mismatch in this repository
+
+1. This app defaults to **Supabase Social Login**.
+2. It switches to **direct Spotify PKCE** only when `VITE_SPOTIFY_DIRECT_AUTH=true` **and** the app can confirm the exact app `/auth/callback` URL is registered in Spotify.
+3. If you expected direct Spotify login but did not enable that flag in the Vercel environment, the deployed app will still use Supabase Social Login rules.
+4. If you enabled the flag but forgot to register the app callback in Spotify, login can still fall back or fail depending on the environment and cached config.
+
+### E. Browser / session edge cases
+
+1. Close any stale `/auth/callback` tab and restart login from the home page. Reopening a previously used callback URL can replay an already-consumed auth code and keep showing the same error page.
+2. If you changed redirect settings while testing, fully sign out, clear site storage/cookies for the app and Supabase domain, then start a fresh login.
+3. Avoid using the browser back button into a completed OAuth redirect; start a new auth round-trip instead.
+
+### F. Environment-variable checks for this app
+
+1. `VITE_SUPABASE_URL` must point to the correct Supabase project.
+2. `VITE_SUPABASE_ANON_KEY` must match that same project.
+3. `VITE_SUPABASE_REDIRECT_TO` should be the exact site origin for the current deployment, without an extra path; the app appends `/auth/callback` itself.
+4. `VITE_SPOTIFY_DIRECT_AUTH` should only be `true` when you intentionally want the direct Spotify PKCE flow and have already added the app callback URL to Spotify Redirect URIs.
+
+### G. Practical fix order
+
+1. Verify whether the failing deployment is using the **default Supabase flow** or **direct Spotify PKCE**.
+2. For the default flow, keep Spotify Redirect URI = **Supabase callback URL**, and Supabase Redirect URL = **app `/auth/callback` URL**.
+3. Re-save Spotify Client ID/Secret in Supabase.
+4. Add the tester account to Spotify User Management.
+5. Confirm the app owner still has Spotify Premium.
+6. Clear stale callback tabs/session state and retry with a brand-new login attempt.
 
 ## Architecture overview
 
