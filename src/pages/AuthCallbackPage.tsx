@@ -36,7 +36,7 @@ export function AuthCallbackPage() {
         const { data: { session } } = await supabase.auth.getSession();
 
         if (session) {
-          const auth = sessionToAuthSnapshot(session);
+          const auth = await sessionToAuthSnapshot(session);
           const product = await getSpotifyProduct(auth?.accessToken).catch(() => 'unknown' as const);
           setAuth(auth);
           setUser(profileFromSession(session, product));
@@ -49,7 +49,7 @@ export function AuthCallbackPage() {
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
           if (event === 'SIGNED_IN' && newSession) {
             subscription.unsubscribe();
-            const auth = sessionToAuthSnapshot(newSession);
+            const auth = await sessionToAuthSnapshot(newSession);
             const product = await getSpotifyProduct(auth?.accessToken).catch(() => 'unknown' as const);
             setAuth(auth);
             setUser(profileFromSession(newSession, product));
