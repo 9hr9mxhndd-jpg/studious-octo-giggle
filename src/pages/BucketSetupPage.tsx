@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
+import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
 import type { Tier } from '../types';
 
 export function BucketSetupPage() {
@@ -9,30 +10,11 @@ export function BucketSetupPage() {
   const assignTier = useAppStore((s) => s.assignTier);
   const user = useAppStore((s) => s.user);
   const [history, setHistory] = useState<Array<{ id: string; prevTier?: Tier; prevUncertain: boolean }>>([]);
-  const [playing, setPlaying] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
 
-  function handlePlay() {
-    if (!current) return;
-    if (user?.isPremium) {
-      // 프리미엄: Spotify 앱 또는 웹에서 전곡 재생
-      window.open(`https://open.spotify.com/track/${current.spotifyTrackId}`, '_blank');
-      return;
-    }
-    // Free: previewUrl로 미리듣기
-    if (!current.previewUrl) return;
-    if (playing) {
-      audioRef.current?.pause();
-      audioRef.current = null;
-      setPlaying(false);
-    } else {
-      const audio = new Audio(current.previewUrl);
-      audio.play().catch(() => {});
-      audio.onended = () => setPlaying(false);
-      audioRef.current = audio;
-      setPlaying(true);
-    }
-  }
+  // 프리미엄 전용 Web Playback SDK
+  const { ready, playing: sdkPlaying, currentTrackId, togglePlay } = useSpotifyPlayer();
 
   const unassigned = songs.filter((s) => s.tier === undefined);
   const current = unassigned[0];
@@ -44,34 +26,69 @@ export function BucketSetupPage() {
   const c3 = songs.filter((s) => s.tier === 3).length;
   const pct = (n: number) => (classified > 0 ? Math.round((n / classified) * 100) : 0);
 
-  function handleAssign(tier: Tier) {
+  function handlePlay() {
     if (!current) return;
-    setHistory((h) => [...h, { id: current.id, prevTier: current.tier, prevUncertain: current.uncertain }]);
-    assignTier(current.id, tier, current.uncertain);
-    setPlaying(false);
+
+    if (user?.isPremium) {
+      // 프리미엄: Web Playback SDK로 전곡 재생
+      void togglePlay(current.spotifyTrackId);
+      return;
+    }
+
+    // Free: previewUrl 미리듣기
+    if (!current.previewUrl) return;
+    if (previewPlaying) {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      setPreviewPlaying(false);
+    } else {
+      const audio = new Audio(current.previewUrl);
+      audio.play().catch(() => {});
+      audio.onended = () => setPreviewPlaying(false);
+      audioRef.current = audio;
+      setPreviewPlaying(true);
+    }
   }
 
-  function handleUndo() {
+  function handleTierAssign(tier: Tier) {
+    if (!current) return;
+    // 티어 이동 시 재생 중이던 곡 정지
+    audioRef.current?.pause();
+    audioRef.current = null;
+    setPreviewPlaying(false);
+    setHistory((h) => [...h, { id: current.id, prevTier: current.tier, prevUncertain: current.uncertain }]);
+    assignTier(current.id, tier, current.uncertain);
+  }
+
+  function tierUndo() {
     const last = history[history.length - 1];
     if (!last) return;
-    const song = songs.find((s) => s.id === last.id);
-    if (!song) return;
     if (last.prevTier !== undefined) {
       assignTier(last.id, last.prevTier, last.prevUncertain);
     } else {
-      // 미분류로 되돌리기 — tier를 undefined로
       useAppStore.setState((state) => ({
-        songs: state.songs.map((s) => (s.id === last.id ? { ...s, tier: undefined, uncertain: last.prevUncertain } : s)),
+        songs: state.songs.map((s) =>
+          s.id === last.id ? { ...s, tier: undefined, uncertain: last.prevUncertain } : s
+        ),
       }));
     }
     setHistory((h) => h.slice(0, -1));
-    setPlaying(false);
   }
 
   function toggleUnsure() {
     if (!current) return;
     assignTier(current.id, current.tier ?? 2, !current.uncertain);
   }
+
+  // 현재 곡이 SDK로 재생 중인지 확인
+  const isCurrentPlaying = user?.isPremium
+    ? sdkPlaying && currentTrackId === current?.spotifyTrackId
+    : previewPlaying;
+
+  // 재생 버튼 표시 조건
+  const canPlay = user?.isPremium
+    ? ready           // 프리미엄: SDK 준비되면 항상 가능
+    : Boolean(current?.previewUrl); // Free: previewUrl 있을 때만
 
   const sessSize = 50;
   const sessProgress = ((classified % sessSize) / sessSize) * 100;
@@ -116,23 +133,42 @@ export function BucketSetupPage() {
               <p className="truncate text-sm font-medium text-warm-800">{current.title}</p>
               <p className="truncate text-xs text-warm-400">{current.artist}</p>
               <div className="mt-2 flex items-center gap-2">
-                {current.previewUrl && user?.isPremium !== undefined ? (
-                  <button
-                    type="button"
-                    onClick={handlePlay}
-                    className="flex items-center gap-1.5 rounded-full border border-warm-200 px-3 py-1 text-[11px] text-warm-500 hover:text-warm-700"
-                  >
-                    <svg width="8" height="8" viewBox="0 0 10 10">
-                      <polygon points="1,0 9,5 1,10" fill="currentColor" />
-                    </svg>
-                    {playing ? '정지' : '미리듣기'}
-                  </button>
-                ) : (
-                  <span className="rounded-full border border-warm-200 px-3 py-1 text-[11px] text-warm-300">🔒 미리듣기</span>
-                )}
+                {/* 재생 버튼 */}
+                <button
+                  type="button"
+                  onClick={handlePlay}
+                  disabled={!canPlay}
+                  className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] transition
+                    ${canPlay
+                      ? isCurrentPlaying
+                        ? 'border-brand-400 bg-brand-50 text-brand-600'
+                        : 'border-warm-200 text-warm-500 hover:text-warm-700'
+                      : 'border-warm-200 text-warm-300 cursor-not-allowed'
+                    }`}
+                >
+                  {isCurrentPlaying ? (
+                    <>
+                      <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+                        <rect x="0" y="0" width="3" height="8" /><rect x="5" y="0" width="3" height="8" />
+                      </svg>
+                      정지
+                    </>
+                  ) : (
+                    <>
+                      <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
+                        <polygon points="1,0 9,5 1,10" />
+                      </svg>
+                      {user?.isPremium
+                        ? (ready ? '전곡 재생' : '연결 중…')
+                        : (canPlay ? '미리듣기' : '미리듣기 없음')}
+                    </>
+                  )}
+                </button>
+
                 <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-warm-400">
                   <input
                     type="checkbox"
+                    id="t-unsure"
                     checked={current.uncertain}
                     onChange={toggleUnsure}
                     className="h-3 w-3 rounded"
@@ -141,7 +177,9 @@ export function BucketSetupPage() {
                 </label>
               </div>
               {current.uncertain && (
-                <p className="mt-1.5 rounded bg-amber-50 px-2 py-0.5 text-[10px] text-amber-600">K=60 경계 곡으로 처리됩니다</p>
+                <p className="mt-1.5 rounded bg-amber-50 px-2 py-0.5 text-[10px] text-amber-600">
+                  K=60 경계 곡으로 처리됩니다
+                </p>
               )}
             </div>
           </div>
@@ -164,7 +202,7 @@ export function BucketSetupPage() {
           <button
             key={btn.tier}
             type="button"
-            onClick={() => handleAssign(btn.tier)}
+            onClick={() => handleTierAssign(btn.tier)}
             disabled={!current}
             className={`rounded-xl border py-3 text-center text-xs font-medium text-warm-800 transition active:scale-95 disabled:opacity-40 ${btn.cls}`}
           >
@@ -178,7 +216,7 @@ export function BucketSetupPage() {
       <div className="flex items-center justify-between">
         <button
           type="button"
-          onClick={handleUndo}
+          onClick={tierUndo}
           disabled={history.length === 0}
           className="text-xs text-warm-400 disabled:opacity-30 hover:text-warm-600"
         >
