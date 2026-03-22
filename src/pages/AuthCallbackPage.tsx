@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { exchangeSpotifyDirectCodeForSessionIfPresent } from '../lib/spotifyDirectAuth';
 import {
   exchangeCodeForSessionIfPresent,
   getAuthCallbackErrorCode,
@@ -12,19 +13,13 @@ export function AuthCallbackPage() {
   const navigate = useNavigate();
   const [errorMessage, setErrorMessage] = useState<string | undefined>(() => getAuthCallbackErrorMessage());
   const [errorCode] = useState<string | undefined>(() => getAuthCallbackErrorCode());
-  const [exchanging, setExchanging] = useState(Boolean(supabase) && !getAuthCallbackErrorMessage());
+  const [exchanging, setExchanging] = useState(!getAuthCallbackErrorMessage());
   const troubleshooting = useMemo(
     () => getSpotifyLoginTroubleshooting(errorMessage, errorCode),
     [errorCode, errorMessage],
   );
 
   useEffect(() => {
-    if (!supabase) {
-      setErrorMessage('Supabase 환경변수가 설정되지 않았어요.');
-      setExchanging(false);
-      return;
-    }
-
     if (errorMessage) {
       setExchanging(false);
       return;
@@ -32,8 +27,28 @@ export function AuthCallbackPage() {
 
     let cancelled = false;
 
-    void exchangeCodeForSessionIfPresent()
-      .then(({ errorMessage: nextErrorMessage }) => {
+    void exchangeSpotifyDirectCodeForSessionIfPresent()
+      .then(async (directResult) => {
+        if (cancelled) return;
+
+        if (directResult.handled) {
+          if (directResult.errorMessage) {
+            setErrorMessage(directResult.errorMessage);
+            setExchanging(false);
+            return;
+          }
+
+          window.location.replace('/');
+          return;
+        }
+
+        if (!supabase) {
+          setErrorMessage('Supabase 환경변수가 설정되지 않았어요.');
+          setExchanging(false);
+          return;
+        }
+
+        const { errorMessage: nextErrorMessage } = await exchangeCodeForSessionIfPresent();
         if (cancelled) return;
 
         if (nextErrorMessage) {

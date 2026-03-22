@@ -1,5 +1,6 @@
 import { createClient, type Session } from '@supabase/supabase-js';
 import type { AuthSnapshot, UserProfile } from '../types';
+import { clearSpotifyDirectSession, signInWithSpotifyDirect } from './spotifyDirectAuth';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -99,9 +100,6 @@ export async function exchangeCodeForSessionIfPresent(location: Location = windo
 
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
-  // PKCE 플로우에서 provider_token은 코드 교환 시점에만 session에 포함됩니다.
-  // 이후 getSession() / onAuthStateChange에서는 포함되지 않을 수 있으므로
-  // 여기서 즉시 저장합니다. (BUG-01 fix)
   if (!error && data.session) {
     const providerToken = data.session.provider_token ?? undefined;
     const userId = data.session.user?.id;
@@ -131,44 +129,28 @@ export function getSpotifyLoginTroubleshooting(
   }
 
   return {
-    title: 'Spotify 계정 정보를 읽는 단계에서 실패했어요.',
+    title: 'Supabase를 거치는 Spotify 소셜 로그인 단계에서 실패했어요.',
     items: [
-      'Spotify Developer Dashboard → User Management에 지금 로그인한 Spotify 계정 이메일이 등록되어 있는지 먼저 확인해주세요.',
-      '개발 모드 Spotify 앱이라면 앱 소유자 계정이 Spotify Premium 상태인지 확인해주세요. 2026년 3월부터는 기존 개발 모드 앱에도 Premium이 필요할 수 있어요.',
-      'Supabase Dashboard → Authentication → Providers → Spotify에 저장된 Client ID / Client Secret이 Spotify Developer Dashboard의 현재 값과 정확히 같은지 다시 저장해주세요.',
-      'Spotify Redirect URI에는 Supabase 프로젝트 콜백 URL(https://<project-ref>.supabase.co/auth/v1/callback)만 넣고, 앱의 /auth/callback 주소는 Supabase Redirect URLs 허용 목록에만 넣어주세요.',
+      '이 배포본은 이제 Supabase Social Login 대신 Spotify PKCE 로그인을 사용해요. 새로고침 후 다시 로그인하면 Supabase provider profile 오류를 우회합니다.',
+      '만약 기존 탭에서 같은 오류가 계속 보이면 브라우저에서 현재 /auth/callback 탭을 닫고 홈으로 돌아가서 다시 "Spotify로 시작하기"를 눌러주세요.',
+      '그래도 실패하면 Spotify Developer Dashboard의 User Management, 앱 소유자 Premium 상태, 그리고 Supabase의 Spotify Client ID / Secret 저장값을 다시 확인해주세요.',
     ],
   };
 }
 
 export async function signInWithSpotify() {
-  if (!supabase) {
-    throw new Error('Supabase 환경변수가 설정되지 않았어요.');
-  }
-
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: 'spotify',
-    options: {
-      scopes: [
-        'user-read-private',
-        'user-read-email',
-        'playlist-read-private',
-        'playlist-read-collaborative',
-        'user-library-read',
-        'user-read-playback-state',
-        'streaming',
-        'user-modify-playback-state',
-      ].join(' '),
-      redirectTo: getSpotifyRedirectUrl(),
-    },
-  });
-
-  if (error) throw error;
+  await signInWithSpotifyDirect();
 }
 
 export async function signOut() {
-  if (!supabase) return;
+  clearSpotifyDirectSession();
   clearSpotifyToken();
+  if (!supabase) return;
+
+  const { data, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+  if (!data.session) return;
+
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
 }
@@ -182,6 +164,7 @@ export async function sessionToAuthSnapshot(session: Session | null): Promise<Au
   }
 
   return {
+    provider: 'supabase',
     accessToken: providerToken,
     refreshToken: session.provider_refresh_token ?? undefined,
   };

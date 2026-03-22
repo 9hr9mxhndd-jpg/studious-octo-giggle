@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { loadUserAppState, subscribeToUserAppState } from './lib/appSync';
+import { restoreSpotifyDirectSession } from './lib/spotifyDirectAuth';
 import { getSpotifyProduct } from './lib/spotify';
 import { clearSpotifyToken, loadSpotifyToken, profileFromSession, saveSpotifyToken, sessionToAuthSnapshot, supabase } from './lib/supabase';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
@@ -18,7 +19,6 @@ function RequireSource({ children }: { children: React.ReactNode }) {
   if (!activeSource) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
-
 
 function resolveSpotifyProduct(nextProduct: SpotifyProduct, previousUser?: UserProfile) {
   if (nextProduct !== 'unknown') return nextProduct;
@@ -48,6 +48,7 @@ function hasAuthCallbackError(search: string) {
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
+  const auth = useAppStore((s) => s.auth);
   const setAuth = useAppStore((s) => s.setAuth);
   const user = useAppStore((s) => s.user);
   const setUser = useAppStore((s) => s.setUser);
@@ -58,21 +59,26 @@ export default function App() {
   const [sessionResolved, setSessionResolved] = useState(!supabase);
   const isAuthCallback = location.pathname === '/auth/callback';
   const callbackHasError = hasAuthCallbackError(location.search);
-  // 경쟁 조건 방지: 동시에 여러 resolveSession이 실행될 때 최신 호출만 상태에 반영합니다. (BUG-03 fix)
   const resolveGenRef = useRef(0);
 
   useEffect(() => {
-    if (!supabase) {
-      setAuth(undefined);
-      setUser(undefined);
-      setSessionResolved(true);
-      return;
-    }
-
     const client = supabase;
     let cancelled = false;
 
+    const applyDirectSession = async (gen: number) => {
+      const directSession = await restoreSpotifyDirectSession().catch(() => undefined);
+      if (!cancelled && gen === resolveGenRef.current) {
+        setAuth(directSession?.auth);
+        setUser(directSession?.user);
+      }
+    };
+
     const syncSession = async (session: Session | null, gen: number) => {
+      if (!session) {
+        await applyDirectSession(gen);
+        return;
+      }
+
       try {
         const nextAuth = await sessionToAuthSnapshot(session);
         const product = await getSpotifyProduct(nextAuth?.accessToken).catch(() => 'unknown' as const);
@@ -97,6 +103,11 @@ export default function App() {
       const gen = ++resolveGenRef.current;
       setSessionResolved(false);
       try {
+        if (!client) {
+          await applyDirectSession(gen);
+          return;
+        }
+
         const session = sessionOverride ?? (await client.auth.getSession()).data.session;
         await syncSession(session, gen);
       } catch {
@@ -105,9 +116,6 @@ export default function App() {
           setUser(undefined);
         }
       } finally {
-        // setSessionResolved는 gen 체크 없이 항상 호출합니다.
-        // gen 체크를 적용하면 초기 getSession()이 onAuthStateChange보다 늦게 끝날 때
-        // setSessionResolved(true)가 영원히 호출되지 않아 앱이 멈춥니다.
         if (!cancelled) {
           setSessionResolved(true);
         }
@@ -115,6 +123,12 @@ export default function App() {
     };
 
     void resolveSession();
+
+    if (!client) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
       void resolveSession(session);
@@ -129,17 +143,13 @@ export default function App() {
   useEffect(() => {
     if (!sessionResolved) return;
 
-    if (!supabase) {
-      setHydrated(true);
-      if (isAuthCallback && !callbackHasError) {
-        navigate('/', { replace: true });
-      }
-      return;
-    }
+    const remoteSyncEnabled = auth?.provider === 'supabase' && Boolean(user?.id);
 
-    if (!user?.id) {
-      clearSpotifyToken();
-      clearSyncedState();
+    if (!remoteSyncEnabled || !user) {
+      if (!user?.id) {
+        clearSpotifyToken();
+        clearSyncedState();
+      }
       setHydrated(true);
       if (isAuthCallback && !callbackHasError) {
         navigate('/', { replace: true });
@@ -148,6 +158,7 @@ export default function App() {
     }
 
     let cancelled = false;
+    const remoteUserId = user.id;
     setHydrated(false);
 
     const updateUserAuthFromRemoteToken = async (remoteToken?: string) => {
@@ -158,20 +169,20 @@ export default function App() {
       const currentAuth = useAppStore.getState().auth;
       setAuth(currentAuth
         ? { ...currentAuth, accessToken: remoteToken }
-        : { accessToken: remoteToken, refreshToken: undefined });
+        : { provider: 'supabase', accessToken: remoteToken, refreshToken: undefined });
 
       const product = await getSpotifyProduct(remoteToken).catch(() => 'unknown' as const);
       if (cancelled) return;
 
       const currentUser = useAppStore.getState().user;
-      if (currentUser?.id !== user.id) return;
+      if (currentUser?.id !== user?.id) return;
 
       setUser(applySpotifyProduct(currentUser, product, currentUser));
     };
 
     const reload = async (completeHydration: boolean) => {
       try {
-        const remoteState = await loadUserAppState(user.id);
+        const remoteState = await loadUserAppState(remoteUserId);
         if (cancelled) return;
 
         replaceRemoteState(remoteState);
@@ -189,7 +200,7 @@ export default function App() {
     };
 
     void reload(true);
-    const unsubscribe = subscribeToUserAppState(user.id, () => {
+    const unsubscribe = subscribeToUserAppState(remoteUserId, () => {
       void reload(false);
     });
 
@@ -197,7 +208,7 @@ export default function App() {
       cancelled = true;
       unsubscribe();
     };
-  }, [callbackHasError, clearSyncedState, isAuthCallback, navigate, replaceRemoteState, sessionResolved, setAuth, setHydrated, setUser, user?.id]);
+  }, [auth?.provider, callbackHasError, clearSyncedState, isAuthCallback, navigate, replaceRemoteState, sessionResolved, setAuth, setHydrated, setUser, user?.id]);
 
   if (!hydrated) {
     return (
