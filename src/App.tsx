@@ -105,7 +105,10 @@ export default function App() {
           setUser(undefined);
         }
       } finally {
-        if (!cancelled && gen === resolveGenRef.current) {
+        // setSessionResolved는 gen 체크 없이 항상 호출합니다.
+        // gen 체크를 적용하면 초기 getSession()이 onAuthStateChange보다 늦게 끝날 때
+        // setSessionResolved(true)가 영원히 호출되지 않아 앱이 멈춥니다.
+        if (!cancelled) {
           setSessionResolved(true);
         }
       }
