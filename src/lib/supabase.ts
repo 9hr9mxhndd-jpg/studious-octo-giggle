@@ -4,6 +4,7 @@ import { clearSpotifyDirectSession, isSpotifyDirectRedirectConfigured, signInWit
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const spotifyDirectAuthEnabled = import.meta.env.VITE_SPOTIFY_DIRECT_AUTH === 'true';
 
 export const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
 
@@ -131,9 +132,9 @@ export function getSpotifyLoginTroubleshooting(
   return {
     title: 'Supabase를 거치는 Spotify 소셜 로그인 단계에서 실패했어요.',
     items: [
-      '이 배포본은 이제 Supabase Social Login 대신 Spotify PKCE 로그인을 사용해요. 새로고침 후 다시 로그인하면 Supabase provider profile 오류를 우회합니다.',
+      '기본 로그인 흐름은 Supabase Spotify Social Login이에요. Spotify Redirect URI는 앱의 /auth/callback 이 아니라 Supabase callback URL로 유지해야 합니다.',
       '만약 기존 탭에서 같은 오류가 계속 보이면 브라우저에서 현재 /auth/callback 탭을 닫고 홈으로 돌아가서 다시 "Spotify로 시작하기"를 눌러주세요.',
-      '그래도 실패하면 Spotify Developer Dashboard의 User Management, 앱 소유자 Premium 상태, 그리고 Supabase의 Spotify Client ID / Secret 저장값을 다시 확인해주세요.',
+      '직접 Spotify PKCE 로그인을 쓰려면 배포 환경에서 VITE_SPOTIFY_DIRECT_AUTH=true 를 설정하고, 해당 앱의 /auth/callback URL을 Spotify Redirect URI에 추가해야 합니다.',
     ],
   };
 }
@@ -164,10 +165,12 @@ async function signInWithSupabaseSpotify() {
 }
 
 export async function signInWithSpotify() {
-  const directConfigured = await isSpotifyDirectRedirectConfigured().catch(() => false);
-  if (directConfigured) {
-    await signInWithSpotifyDirect();
-    return;
+  if (spotifyDirectAuthEnabled) {
+    const directConfigured = await isSpotifyDirectRedirectConfigured().catch(() => false);
+    if (directConfigured) {
+      await signInWithSpotifyDirect();
+      return;
+    }
   }
 
   await signInWithSupabaseSpotify();
