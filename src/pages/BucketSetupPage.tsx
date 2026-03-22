@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { signInWithSpotifyPlaybackPermissions } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
@@ -193,9 +194,20 @@ export function BucketSetupPage() {
       )}
 
       {user?.isPremium && playerError ? (
-        <div className="flex items-center gap-2 rounded-xl border border-warm-100 bg-warm-50 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warm-100 bg-warm-50 px-3 py-2">
           <span className="h-1.5 w-1.5 rounded-full bg-amber-500 flex-shrink-0" />
           <span className="text-[10px] text-warm-500">{playerError}</span>
+          {playerError.includes('재생 권한') || playerError.includes('재로그인') ? (
+            <button
+              type="button"
+              onClick={() => {
+                void signInWithSpotifyPlaybackPermissions();
+              }}
+              className="rounded-full border border-warm-200 px-2.5 py-1 text-[10px] font-medium text-warm-600 hover:border-warm-300 hover:text-warm-800"
+            >
+              재생 권한 승인
+            </button>
+          ) : null}
         </div>
       ) : null}
 
