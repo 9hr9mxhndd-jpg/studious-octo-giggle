@@ -1,6 +1,5 @@
 import { demoPlaylists, demoSongs } from './sampleData';
 import { buildSongId } from './songIdentity';
-import { refreshSpotifyDirectAccessToken } from './spotifyDirectAuth';
 import { persistSpotifyToken, supabase } from './supabase';
 import type { PlaylistSummary, Song, SpotifyProduct } from '../types';
 
@@ -56,11 +55,6 @@ async function spotifyFetch<T>(path: string, accessToken: string, _isRetry = fal
 
   if (!res.ok) {
     if (res.status === 401 && !_isRetry) {
-      const directToken = await refreshSpotifyDirectAccessToken(accessToken).catch(() => undefined);
-      if (directToken && directToken !== accessToken) {
-        return spotifyFetch<T>(path, directToken, true);
-      }
-
       if (supabase) {
         const { data } = await supabase.auth.refreshSession().catch(() => ({ data: { session: null } }));
         const newToken = data.session?.provider_token;

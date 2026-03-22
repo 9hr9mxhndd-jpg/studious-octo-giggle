@@ -64,7 +64,7 @@ export interface UserProfile {
 }
 
 export interface AuthSnapshot {
-  provider: 'supabase' | 'spotify-direct';
+  provider: 'supabase';
   accessToken?: string;
   refreshToken?: string;
 }
