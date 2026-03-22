@@ -9,10 +9,10 @@ export const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
 export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
-        flowType: 'pkce',
+        flowType: 'implicit',     // PKCE 대신 implicit — SPA에서 code_verifier 유실 문제 해결
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: false, // 수동으로 처리 — 자동 감지 끔
+        detectSessionInUrl: true, // implicit flow는 hash fragment를 자동 감지
       },
     })
   : undefined;
@@ -28,11 +28,11 @@ function getBaseRedirectUrl() {
 }
 
 export function getSpotifyRedirectUrl() {
-  const redirectUrl = new URL(getBaseRedirectUrl());
-  redirectUrl.pathname = '/auth/callback';
-  redirectUrl.search = '';
-  redirectUrl.hash = '';
-  return redirectUrl.toString();
+  const url = new URL(getBaseRedirectUrl());
+  url.pathname = '/auth/callback';
+  url.search = '';
+  url.hash = '';
+  return url.toString();
 }
 
 export async function signInWithSpotify() {
@@ -43,9 +43,15 @@ export async function signInWithSpotify() {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'spotify',
     options: {
-      scopes: 'user-read-private user-read-email playlist-read-private streaming user-modify-playback-state user-library-read',
+      scopes: [
+        'user-read-private',
+        'user-read-email',
+        'playlist-read-private',
+        'user-library-read',
+        'streaming',
+        'user-modify-playback-state',
+      ].join(' '),
       redirectTo: getSpotifyRedirectUrl(),
-      queryParams: { show_dialog: 'true' },
     },
   });
 
