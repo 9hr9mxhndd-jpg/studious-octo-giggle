@@ -12,7 +12,7 @@ export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
         flowType: 'pkce',
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
+        detectSessionInUrl: false, // 수동으로 처리 — 자동 감지 끔
       },
     })
   : undefined;
@@ -21,12 +21,10 @@ function getBaseRedirectUrl() {
   if (import.meta.env.VITE_SUPABASE_REDIRECT_TO) {
     return import.meta.env.VITE_SUPABASE_REDIRECT_TO;
   }
-
   if (typeof window !== 'undefined') {
     return window.location.origin;
   }
-
-  return 'http://localhost:3000';
+  return 'http://localhost:5173';
 }
 
 export function getSpotifyRedirectUrl() {
@@ -39,52 +37,40 @@ export function getSpotifyRedirectUrl() {
 
 export async function signInWithSpotify() {
   if (!supabase) {
-    throw new Error('Spotify login is unavailable until Supabase environment variables are configured.');
+    throw new Error('Supabase 환경변수가 설정되지 않았어요.');
   }
 
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'spotify',
     options: {
-      scopes: 'user-read-private user-read-email playlist-read-private streaming user-modify-playback-state',
+      scopes: 'user-read-private user-read-email playlist-read-private streaming user-modify-playback-state user-library-read',
       redirectTo: getSpotifyRedirectUrl(),
-      queryParams: {
-        show_dialog: 'true',
-      },
+      queryParams: { show_dialog: 'true' },
     },
   });
 
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 }
 
 export async function signOut() {
-  if (!supabase) {
-    return;
-  }
-
+  if (!supabase) return;
   const { error } = await supabase.auth.signOut();
-  if (error) {
-    throw error;
-  }
+  if (error) throw error;
 }
 
 export function sessionToAuthSnapshot(session: Session | null): AuthSnapshot | undefined {
-  if (!session) {
-    return undefined;
-  }
-
+  if (!session) return undefined;
   return {
     accessToken: session.provider_token ?? undefined,
     refreshToken: session.provider_refresh_token ?? undefined,
   };
 }
 
-export function profileFromSession(session: Session | null, spotifyProduct: UserProfile['spotifyProduct']): UserProfile | undefined {
-  if (!session?.user) {
-    return undefined;
-  }
-
+export function profileFromSession(
+  session: Session | null,
+  spotifyProduct: UserProfile['spotifyProduct'],
+): UserProfile | undefined {
+  if (!session?.user) return undefined;
   return {
     id: session.user.id,
     email: session.user.email,
