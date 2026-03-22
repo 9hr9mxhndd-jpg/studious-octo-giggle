@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
@@ -58,6 +58,8 @@ export default function App() {
   const [sessionResolved, setSessionResolved] = useState(!supabase);
   const isAuthCallback = location.pathname === '/auth/callback';
   const callbackHasError = hasAuthCallbackError(location.search);
+  // 경쟁 조건 방지: 동시에 여러 resolveSession이 실행될 때 최신 호출만 상태에 반영합니다. (BUG-03 fix)
+  const resolveGenRef = useRef(0);
 
   useEffect(() => {
     if (!supabase) {
@@ -70,11 +72,11 @@ export default function App() {
     const client = supabase;
     let cancelled = false;
 
-    const syncSession = async (session: Session | null) => {
+    const syncSession = async (session: Session | null, gen: number) => {
       try {
         const nextAuth = await sessionToAuthSnapshot(session);
         const product = await getSpotifyProduct(nextAuth?.accessToken).catch(() => 'unknown' as const);
-        if (!cancelled) {
+        if (!cancelled && gen === resolveGenRef.current) {
           setAuth(nextAuth);
           const currentUser = useAppStore.getState().user;
           setUser(applySpotifyProduct(
@@ -84,7 +86,7 @@ export default function App() {
           ));
         }
       } catch {
-        if (!cancelled) {
+        if (!cancelled && gen === resolveGenRef.current) {
           setAuth(undefined);
           setUser(undefined);
         }
@@ -92,17 +94,18 @@ export default function App() {
     };
 
     const resolveSession = async (sessionOverride?: Session | null) => {
+      const gen = ++resolveGenRef.current;
       setSessionResolved(false);
       try {
         const session = sessionOverride ?? (await client.auth.getSession()).data.session;
-        await syncSession(session);
+        await syncSession(session, gen);
       } catch {
-        if (!cancelled) {
+        if (!cancelled && gen === resolveGenRef.current) {
           setAuth(undefined);
           setUser(undefined);
         }
       } finally {
-        if (!cancelled) {
+        if (!cancelled && gen === resolveGenRef.current) {
           setSessionResolved(true);
         }
       }
