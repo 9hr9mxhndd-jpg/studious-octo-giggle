@@ -45,7 +45,7 @@ const translations = {
         },
       ],
       cards: [
-        ['OAuth scopes', 'user-read-private, user-read-email, playlist-read-private, streaming, user-modify-playback-state'],
+        ['OAuth scopes', 'base login: user-read-private, user-read-email, playlist-read-private, playlist-read-collaborative, user-library-read'],
         ['Tiered seeding', 'Tier 1 ≈ 1829 · Tier 2 ≈ 1605 · Tier 3 ≈ 1365'],
         ['Adaptive K', '48 → 24 → 12, with K=60 for uncertainty boundary songs'],
         ['Battle UI', 'Win/Lose when the rating gap is large, 5-point scale when it is narrow'],
@@ -188,7 +188,7 @@ const translations = {
         },
       ],
       cards: [
-        ['OAuth 권한', 'user-read-private, user-read-email, playlist-read-private, streaming, user-modify-playback-state'],
+        ['OAuth 권한', '기본 로그인: user-read-private, user-read-email, playlist-read-private, playlist-read-collaborative, user-library-read'],
         ['티어 초기값', 'Tier 1 ≈ 1829 · Tier 2 ≈ 1605 · Tier 3 ≈ 1365'],
         ['적응형 K', '48 → 24 → 12, 경계 곡은 K=60'],
         ['대결 UI', '평점 차가 크면 승/패, 작으면 5단계 평가'],

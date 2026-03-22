@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { buildMatchup, getAdaptiveBattleMode } from '../lib/elo';
 import { useAppStore } from '../store/appStore';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
+import { signInWithSpotifyPlaybackPermissions } from '../lib/supabase';
 
 const SCALE_STEPS = [
   { label: 'A 훨씬', score: 1.0 },
@@ -203,7 +204,7 @@ export function MatchPage() {
 
       {/* 재생 상태 / 에러 */}
       {user?.isPremium && (
-        <div className="flex items-center gap-2 rounded-xl border border-warm-100 bg-warm-50 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warm-100 bg-warm-50 px-3 py-2">
           <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${ready ? 'bg-brand-500' : 'bg-warm-300'}`} />
           <span className="text-[10px] text-warm-400">
             {playerError
@@ -212,6 +213,17 @@ export function MatchPage() {
                 ? `Web Player 연결됨 · 전곡 재생 가능${playing ? ' · 재생 중' : ''}`
                 : 'Web Player 연결 중…'}
           </span>
+          {playerError && (playerError.includes('재생 권한') || playerError.includes('재로그인')) ? (
+            <button
+              type="button"
+              onClick={() => {
+                void signInWithSpotifyPlaybackPermissions();
+              }}
+              className="rounded-full border border-warm-200 px-2.5 py-1 text-[10px] font-medium text-warm-600 hover:border-warm-300 hover:text-warm-800"
+            >
+              재생 권한 승인
+            </button>
+          ) : null}
         </div>
       )}
 
