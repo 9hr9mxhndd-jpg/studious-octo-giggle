@@ -30,14 +30,14 @@ Create a `.env` from `.env.example` and provide your Supabase project URL and an
 
 1. In Supabase Auth, enable the Spotify provider.
 2. Add the callback URLs in the correct places. For local development, add `http://localhost:3000/auth/callback` to Supabase Auth redirect URLs and set `VITE_SUPABASE_REDIRECT_TO=http://localhost:3000` so the app can derive that callback path. For the default login flow, the Spotify Developer Dashboard Redirect URI must stay on your Supabase project callback URL (`https://<project-ref>.supabase.co/auth/v1/callback`), not your app's `/auth/callback` URL. Only add the app `/auth/callback` URL to Spotify when you intentionally enable direct Spotify PKCE with `VITE_SPOTIFY_DIRECT_AUTH=true`.
-3. Use the following scopes:
+3. Use the following base scopes for the default Supabase login flow:
    - `user-read-private`
    - `user-read-email`
    - `playlist-read-private`
+   - `playlist-read-collaborative`
    - `user-library-read`
-   - `streaming`
-   - `user-modify-playback-state`
-4. Run `supabase/schema.sql` against your project to create the RLS-protected tables.
+4. Request playback scopes (`user-read-playback-state`, `streaming`, `user-modify-playback-state`) only when the user explicitly needs Web Playback SDK control.
+5. Run `supabase/schema.sql` against your project to create the RLS-protected tables.
 
 
 ## Spotify login troubleshooting

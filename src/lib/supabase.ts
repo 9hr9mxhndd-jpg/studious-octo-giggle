@@ -7,6 +7,18 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const spotifyDirectAuthEnabled = import.meta.env.VITE_SPOTIFY_DIRECT_AUTH === 'true';
 const SPOTIFY_OAUTH_ATTEMPT_STORAGE_KEY = 'spotify-supabase-oauth-attempt';
 const SPOTIFY_OAUTH_RETRY_WINDOW_MS = 5 * 60 * 1000;
+const SPOTIFY_BASE_SCOPES = [
+  'user-read-private',
+  'user-read-email',
+  'playlist-read-private',
+  'playlist-read-collaborative',
+  'user-library-read',
+].join(' ');
+const SPOTIFY_PLAYBACK_SCOPES = [
+  'user-read-playback-state',
+  'streaming',
+  'user-modify-playback-state',
+].join(' ');
 
 export const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
 
@@ -218,7 +230,10 @@ export function getSpotifyLoginTroubleshooting(
   };
 }
 
-async function signInWithSupabaseSpotify(preserveRetryCount = false) {
+async function signInWithSupabaseSpotify(
+  preserveRetryCount = false,
+  scopes = SPOTIFY_BASE_SCOPES,
+) {
   if (!supabase) {
     throw new Error('Supabase 환경변수가 설정되지 않았어요.');
   }
@@ -229,16 +244,7 @@ async function signInWithSupabaseSpotify(preserveRetryCount = false) {
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'spotify',
     options: {
-      scopes: [
-        'user-read-private',
-        'user-read-email',
-        'playlist-read-private',
-        'playlist-read-collaborative',
-        'user-library-read',
-        'user-read-playback-state',
-        'streaming',
-        'user-modify-playback-state',
-      ].join(' '),
+      scopes,
       redirectTo: getSpotifyRedirectUrl(),
       queryParams: {
         show_dialog: 'true',
@@ -262,6 +268,13 @@ export async function signInWithSpotify(options?: { preserveRetryCount?: boolean
   }
 
   await signInWithSupabaseSpotify(options?.preserveRetryCount);
+}
+
+export async function signInWithSpotifyPlaybackPermissions() {
+  await signInWithSupabaseSpotify(
+    false,
+    [SPOTIFY_BASE_SCOPES, SPOTIFY_PLAYBACK_SCOPES].join(' '),
+  );
 }
 
 export async function signOut() {
