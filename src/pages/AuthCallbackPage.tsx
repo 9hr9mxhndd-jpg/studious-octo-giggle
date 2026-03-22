@@ -1,83 +1,56 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getSpotifyProduct } from '../lib/spotify';
-import { profileFromSession, sessionToAuthSnapshot, supabase } from '../lib/supabase';
-import { useAppStore } from '../store/appStore';
+import { supabase } from '../lib/supabase';
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
-  const setAuth = useAppStore((state) => state.setAuth);
-  const setUser = useAppStore((state) => state.setUser);
-  const setHydrated = useAppStore((state) => state.setHydrated);
   const [errorMessage, setErrorMessage] = useState<string>();
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function handleCallback() {
-      if (!supabase) {
-        const message = 'Spotify login is unavailable until Supabase environment variables are configured.';
-        console.error(message);
-        if (!cancelled) {
-          setErrorMessage(message);
-          setHydrated(true);
-        }
-        return;
-      }
-
-      try {
-        const callbackUrl = new URL(window.location.href);
-        const code = callbackUrl.searchParams.get('code');
-        const callbackError = callbackUrl.searchParams.get('error_description') ?? callbackUrl.searchParams.get('error');
-
-        if (callbackError) {
-          throw new Error(callbackError);
-        }
-
-        if (!code) {
-          throw new Error('Missing OAuth code in callback URL.');
-        }
-
-        const { data: exchangeData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-        if (exchangeError) {
-          throw exchangeError;
-        }
-
-        const session = exchangeData.session;
-        if (!session) {
-          throw new Error('Spotify login completed, but no authenticated session was returned.');
-        }
-
-        const auth = sessionToAuthSnapshot(session);
-        const product = await getSpotifyProduct(auth?.accessToken);
-
-        if (!cancelled) {
-          setAuth(auth);
-          setUser(profileFromSession(session, product));
-          setHydrated(true);
-          navigate('/setup/playlist', { replace: true });
-        }
-      } catch (error) {
-        console.error('Spotify auth callback failed:', error);
-        if (!cancelled) {
-          setAuth(undefined);
-          setUser(undefined);
-          setHydrated(true);
-          setErrorMessage(error instanceof Error ? error.message : 'Authentication failed.');
-        }
-      }
+    if (!supabase) {
+      setErrorMessage('Supabase 환경변수가 설정되지 않았어요.');
+      return;
     }
 
-    void handleCallback();
+    // detectSessionInUrl: true 가 자동으로 code를 교환하고
+    // SIGNED_IN 이벤트를 발생시킴 — 여기선 그냥 기다리면 됨
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') {
+        navigate('/', { replace: true });
+      }
+      if (event === 'SIGNED_OUT') {
+        navigate('/', { replace: true });
+      }
+    });
 
-    return () => {
-      cancelled = true;
-    };
-  }, [navigate, setAuth, setHydrated, setUser]);
+    // URL에 error 파라미터가 있으면 표시
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get('error_description') ?? params.get('error');
+    if (err) {
+      setErrorMessage(decodeURIComponent(err));
+    }
+
+    return () => subscription.unsubscribe();
+  }, [navigate]);
+
+  if (errorMessage) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-warm-50">
+        <p className="text-sm text-red-500">{errorMessage}</p>
+        <button
+          type="button"
+          onClick={() => navigate('/', { replace: true })}
+          className="rounded-full border border-warm-200 px-4 py-2 text-xs text-warm-500"
+        >
+          홈으로 돌아가기
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-200">
-      {errorMessage ?? 'Loading app…'}
+    <div className="flex min-h-screen items-center justify-center bg-warm-50">
+      <p className="text-sm text-warm-400">로그인 처리 중…</p>
     </div>
   );
 }
