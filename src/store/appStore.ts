@@ -1,5 +1,9 @@
-import { create } from 'zustand';
-import { buildMatchup, getInitialRatingForTier, resolveMatchResult } from '../lib/elo';
+import { create } from "zustand";
+import {
+  buildMatchup,
+  getInitialRatingForTier,
+  resolveMatchResult,
+} from "../lib/elo";
 import {
   appendLibrary,
   clearUserAppState,
@@ -8,12 +12,22 @@ import {
   saveSessionState,
   saveSongAndRating,
   type RemoteAppState,
-} from '../lib/appSync';
-import type { AppLocale, AuthSnapshot, MatchRecord, PlaylistSummary, RatingRecord, Song, Tier, UserProfile } from '../types';
+} from "../lib/appSync";
+import type {
+  AppLocale,
+  AuthSnapshot,
+  MatchRecord,
+  PlaylistSummary,
+  RatingRecord,
+  Song,
+  Tier,
+  UserProfile,
+} from "../types";
 
 export interface ActiveSource {
   id: string;
   name: string;
+  // 앱에 실제로 임포트되어 현재 처리 가능한 곡 수입니다.
   trackCount: number;
   imageUrl?: string;
   isLikedSongs?: boolean;
@@ -57,9 +71,34 @@ interface AppState {
 
 function buildRatings(songs: Song[]) {
   return songs.reduce<Record<string, RatingRecord>>((acc, song) => {
-    acc[song.id] = { songId: song.id, rating: 1500, matchesPlayed: 0, lastDelta: 0 };
+    acc[song.id] = {
+      songId: song.id,
+      rating: 1500,
+      matchesPlayed: 0,
+      lastDelta: 0,
+    };
     return acc;
   }, {});
+}
+
+function getSourceTrackCount(sourceId: string | undefined, songs: Song[]) {
+  if (!sourceId) return 0;
+  return songs.filter((song) => song.playlistId === sourceId).length;
+}
+
+function syncActiveSourceTrackCount(
+  activeSource: ActiveSource | undefined,
+  songs: Song[],
+) {
+  if (!activeSource) return activeSource;
+
+  const syncedTrackCount = getSourceTrackCount(activeSource.id, songs);
+  if (syncedTrackCount === activeSource.trackCount) return activeSource;
+
+  return {
+    ...activeSource,
+    trackCount: syncedTrackCount,
+  };
 }
 
 function syncSessionState(state: AppState) {
@@ -73,13 +112,13 @@ function syncSessionState(state: AppState) {
     likedSongsImport: state.likedSongsImport,
     lastMatchedAt: state.lastMatchedAt,
   }).catch((error) => {
-    console.error('Failed to sync session state.', error);
+    console.error("Failed to sync session state.", error);
   });
 }
 
 function getDefaultState() {
   return {
-    locale: 'ko' as AppLocale,
+    locale: "ko" as AppLocale,
     playlists: [],
     songs: [],
     likedSongsImport: undefined,
@@ -116,20 +155,34 @@ export const useAppStore = create<AppState>()((set, get) => ({
     syncSessionState(get());
   },
   setActiveSource: (activeSource) => {
-    set({ activeSource });
+    const syncedActiveSource = syncActiveSourceTrackCount(
+      activeSource,
+      get().songs,
+    );
+    set({ activeSource: syncedActiveSource });
     syncSessionState(get());
   },
   importSongs: (songs) => {
     const nextRatings = buildRatings(songs);
-    set({ songs, ratings: nextRatings, matches: [], lastMatchedAt: {} });
+    set((state) => ({
+      songs,
+      ratings: nextRatings,
+      matches: [],
+      lastMatchedAt: {},
+      activeSource: syncActiveSourceTrackCount(state.activeSource, songs),
+    }));
     const state = get();
     const userId = state.user?.id;
     if (!userId) return;
     void Promise.all([
       replaceLibrary(userId, songs, nextRatings),
-      saveSessionState(userId, { lastMatchedAt: {}, likedSongsImport: state.likedSongsImport }),
+      saveSessionState(userId, {
+        activeSource: state.activeSource,
+        lastMatchedAt: {},
+        likedSongsImport: state.likedSongsImport,
+      }),
     ]).catch((error) => {
-      console.error('Failed to sync imported songs.', error);
+      console.error("Failed to sync imported songs.", error);
     });
   },
   appendSongs: (songs) => {
@@ -138,25 +191,37 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const newSongs = songs.filter((song) => !existingIds.has(song.id));
     if (newSongs.length === 0) return;
 
+    const nextSongs = [...state.songs, ...newSongs];
     const nextState = {
-      songs: [...state.songs, ...newSongs],
+      songs: nextSongs,
       ratings: { ...state.ratings, ...buildRatings(newSongs) },
+      activeSource: syncActiveSourceTrackCount(state.activeSource, nextSongs),
     };
     set(nextState);
 
     const userId = get().user?.id;
     if (!userId) return;
-    void appendLibrary(userId, newSongs, nextState.ratings).catch((error) => {
-      console.error('Failed to sync appended songs.', error);
+    void Promise.all([
+      appendLibrary(userId, newSongs, nextState.ratings),
+      saveSessionState(userId, { activeSource: nextState.activeSource }),
+    ]).catch((error) => {
+      console.error("Failed to sync appended songs.", error);
     });
   },
   assignTier: (songId, tier, uncertain) => {
     set((state) => ({
-      songs: state.songs.map((song) => (song.id === songId ? { ...song, tier, uncertain } : song)),
+      songs: state.songs.map((song) =>
+        song.id === songId ? { ...song, tier, uncertain } : song,
+      ),
       ratings: {
         ...state.ratings,
         [songId]: {
-          ...(state.ratings[songId] ?? { songId, matchesPlayed: 0, lastDelta: 0, rating: 1500 }),
+          ...(state.ratings[songId] ?? {
+            songId,
+            matchesPlayed: 0,
+            lastDelta: 0,
+            rating: 1500,
+          }),
           rating: getInitialRatingForTier(tier),
         },
       },
@@ -166,17 +231,24 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const userId = state.user?.id;
     const song = state.songs.find((item) => item.id === songId);
     if (!userId || !song) return;
-    void saveSongAndRating(userId, song, state.ratings[songId]).catch((error) => {
-      console.error('Failed to sync tier assignment.', error);
-    });
+    void saveSongAndRating(userId, song, state.ratings[songId]).catch(
+      (error) => {
+        console.error("Failed to sync tier assignment.", error);
+      },
+    );
   },
   submitMatch: (leftScore) => {
     const state = get();
-    const matchup = buildMatchup(state.songs, state.ratings, state.matches.length, state.lastMatchedAt);
+    const matchup = buildMatchup(
+      state.songs,
+      state.ratings,
+      state.matches.length,
+      state.lastMatchedAt,
+    );
     if (!matchup) return;
 
     const updated = resolveMatchResult(matchup, leftScore);
-    const pairKey = [matchup.left.id, matchup.right.id].sort().join('|');
+    const pairKey = [matchup.left.id, matchup.right.id].sort().join("|");
     const nextMatch = {
       id: crypto.randomUUID(),
       leftSongId: matchup.left.id,
@@ -202,8 +274,13 @@ export const useAppStore = create<AppState>()((set, get) => ({
 
     const userId = get().user?.id;
     if (!userId) return;
-    void insertMatch(userId, nextMatch, [updated.left, updated.right], nextLastMatchedAt).catch((error) => {
-      console.error('Failed to sync match result.', error);
+    void insertMatch(
+      userId,
+      nextMatch,
+      [updated.left, updated.right],
+      nextLastMatchedAt,
+    ).catch((error) => {
+      console.error("Failed to sync match result.", error);
     });
   },
   resetFlow: () => {
@@ -217,19 +294,20 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }));
     if (!userId) return;
     void clearUserAppState(userId).catch((error) => {
-      console.error('Failed to clear remote session.', error);
+      console.error("Failed to clear remote session.", error);
     });
   },
-  replaceRemoteState: (state) => set({
-    locale: state.locale,
-    playlists: state.playlists,
-    selectedPlaylistId: state.selectedPlaylistId,
-    activeSource: state.activeSource,
-    likedSongsImport: state.likedSongsImport,
-    lastMatchedAt: state.lastMatchedAt,
-    songs: state.songs,
-    ratings: state.ratings,
-    matches: state.matches,
-  }),
+  replaceRemoteState: (state) =>
+    set({
+      locale: state.locale,
+      playlists: state.playlists,
+      selectedPlaylistId: state.selectedPlaylistId,
+      activeSource: syncActiveSourceTrackCount(state.activeSource, state.songs),
+      likedSongsImport: state.likedSongsImport,
+      lastMatchedAt: state.lastMatchedAt,
+      songs: state.songs,
+      ratings: state.ratings,
+      matches: state.matches,
+    }),
   clearSyncedState: () => set(getDefaultState()),
 }));
