@@ -84,6 +84,3 @@ create policy "ratings owned by user" on public.ratings
 drop policy if exists "matches owned by user" on public.matches;
 create policy "matches owned by user" on public.matches
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
-create policy "sorter state owned by user" on public.sorter_state
-  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
