@@ -9,13 +9,29 @@ export const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
 export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
-        flowType: 'implicit',     // PKCE 대신 implicit — SPA에서 code_verifier 유실 문제 해결
+        flowType: 'implicit',
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true, // implicit flow는 hash fragment를 자동 감지
+        detectSessionInUrl: true,
       },
     })
   : undefined;
+
+// ── Spotify provider_token은 implicit flow에서 최초 1회만 session에 포함됨
+//    이후 getSession() 복원 시 null이 되므로 localStorage에 별도 저장
+const SPOTIFY_TOKEN_KEY = 'spotify_provider_token';
+
+export function saveSpotifyToken(token: string) {
+  try { localStorage.setItem(SPOTIFY_TOKEN_KEY, token); } catch {}
+}
+
+export function loadSpotifyToken(): string | undefined {
+  try { return localStorage.getItem(SPOTIFY_TOKEN_KEY) ?? undefined; } catch { return undefined; }
+}
+
+export function clearSpotifyToken() {
+  try { localStorage.removeItem(SPOTIFY_TOKEN_KEY); } catch {}
+}
 
 function getBaseRedirectUrl() {
   if (import.meta.env.VITE_SUPABASE_REDIRECT_TO) {
@@ -47,6 +63,7 @@ export async function signInWithSpotify() {
         'user-read-private',
         'user-read-email',
         'playlist-read-private',
+        'playlist-read-collaborative',
         'user-library-read',
         'streaming',
         'user-modify-playback-state',
@@ -60,14 +77,22 @@ export async function signInWithSpotify() {
 
 export async function signOut() {
   if (!supabase) return;
+  clearSpotifyToken();
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
 }
 
 export function sessionToAuthSnapshot(session: Session | null): AuthSnapshot | undefined {
   if (!session) return undefined;
+
+  // provider_token이 있으면 저장, 없으면 이전에 저장된 값 사용
+  const providerToken = session.provider_token ?? undefined;
+  if (providerToken) {
+    saveSpotifyToken(providerToken);
+  }
+
   return {
-    accessToken: session.provider_token ?? undefined,
+    accessToken: providerToken ?? loadSpotifyToken(),
     refreshToken: session.provider_refresh_token ?? undefined,
   };
 }
