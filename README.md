@@ -4,7 +4,7 @@ A React + TypeScript + Vite web app for ranking Spotify playlist tracks by prefe
 
 ## Features
 
-- Spotify OAuth via Supabase Auth with the requested scopes and an overrideable preview-safe redirect URL.
+- Spotify OAuth via Supabase Auth with the requested scopes and an overrideable preview-safe redirect URL, plus optional direct Spotify PKCE login when explicitly enabled.
 - English/Korean UI toggle with persisted locale selection.
 - Playlist import flow with a demo mode when environment variables are not present.
 - Tier bucket setup that seeds ratings using the requested tier anchors.
@@ -24,12 +24,12 @@ npm run dev
 
 The Vite dev server is configured to run on `http://localhost:3000` so it matches the local Spotify/Supabase callback flow.
 
-Create a `.env` from `.env.example` and provide your Supabase project URL and anon key. `VITE_SUPABASE_REDIRECT_TO` should be the site origin for your deployment; the app automatically sends Spotify OAuth back through `/auth/callback` and exchanges the returned auth code in the callback page. For preview deployments, add the resulting app callback URL to the Supabase redirect allow list only. After Spotify approval, the app returns authenticated users to `/`, where they select a playlist and then continue to `/bucket`.
+Create a `.env` from `.env.example` and provide your Supabase project URL and anon key. `VITE_SUPABASE_REDIRECT_TO` should be the site origin for your deployment; the app automatically sends Spotify OAuth back through `/auth/callback` and exchanges the returned auth code in the callback page. By default, the app signs in through Supabase Social Login, so preview deployments only need that app callback URL added to the Supabase redirect allow list. If you explicitly enable direct Spotify PKCE with `VITE_SPOTIFY_DIRECT_AUTH=true`, you must also register that same app `/auth/callback` URL in the Spotify Developer Dashboard. After Spotify approval, the app returns authenticated users to `/`, where they select a playlist and then continue to `/bucket`.
 
 ## Supabase + Spotify setup notes
 
 1. In Supabase Auth, enable the Spotify provider.
-2. Add the callback URLs in the correct places. For local development, add `http://localhost:3000/auth/callback` to Supabase Auth redirect URLs and set `VITE_SUPABASE_REDIRECT_TO=http://localhost:3000` so the app can derive that callback path. In the Spotify Developer Dashboard, the Redirect URI must be your Supabase project callback URL (`https://<project-ref>.supabase.co/auth/v1/callback`), not your app's `/auth/callback` URL.
+2. Add the callback URLs in the correct places. For local development, add `http://localhost:3000/auth/callback` to Supabase Auth redirect URLs and set `VITE_SUPABASE_REDIRECT_TO=http://localhost:3000` so the app can derive that callback path. For the default login flow, the Spotify Developer Dashboard Redirect URI must stay on your Supabase project callback URL (`https://<project-ref>.supabase.co/auth/v1/callback`), not your app's `/auth/callback` URL. Only add the app `/auth/callback` URL to Spotify when you intentionally enable direct Spotify PKCE with `VITE_SPOTIFY_DIRECT_AUTH=true`.
 3. Use the following scopes:
    - `user-read-private`
    - `user-read-email`
@@ -47,7 +47,7 @@ If Spotify shows `Error getting user profile from external provider` even though
 1. Open **Spotify Developer Dashboard → User Management** and add the exact Spotify account email that is trying to log in. Development mode apps can still issue OAuth tokens for non-allowlisted users, but Spotify documents that API requests for those users can fail with `403`, which Supabase surfaces as a provider-profile error.
 2. Check whether the Spotify app owner still has **Spotify Premium**. Spotify's February 6, 2026 platform update says this became required for existing Development Mode apps starting **March 9, 2026**.
 3. Re-copy the current Spotify **Client ID** and **Client Secret** into **Supabase → Authentication → Providers → Spotify** and save again.
-4. Verify that the Supabase callback URL is still listed in Spotify Redirect URIs, and that your app's `/auth/callback` URL is still listed in Supabase Redirect URLs.
+4. Verify that the Supabase callback URL is still listed in Spotify Redirect URIs, and that your app's `/auth/callback` URL is still listed in Supabase Redirect URLs. If direct Spotify PKCE is enabled, verify the app `/auth/callback` URL is also listed in Spotify Redirect URIs.
 
 ## Architecture overview
 

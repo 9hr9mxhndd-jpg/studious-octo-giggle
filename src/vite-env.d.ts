@@ -4,6 +4,7 @@ interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string;
   readonly VITE_SUPABASE_ANON_KEY?: string;
   readonly VITE_SUPABASE_REDIRECT_TO?: string;
+  readonly VITE_SPOTIFY_DIRECT_AUTH?: string;
 }
 
 interface ImportMeta {
