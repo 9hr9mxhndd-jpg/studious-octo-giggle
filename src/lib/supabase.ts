@@ -33,6 +33,18 @@ export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
     })
   : undefined;
 
+export async function ensureSupabaseSession() {
+  if (!supabase) return undefined;
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+  if (sessionData.session) return sessionData.session;
+
+  const { data, error } = await supabase.auth.signInAnonymously();
+  if (error) throw error;
+  return data.session ?? undefined;
+}
+
 let spotifyProviderToken: string | undefined;
 
 interface PendingSpotifyOAuthAttempt {
@@ -246,6 +258,9 @@ async function signInWithSupabaseSpotify(
     options: {
       scopes,
       redirectTo: getSpotifyRedirectUrl(),
+      queryParams: {
+        show_dialog: 'true',
+      },
     },
   });
 
