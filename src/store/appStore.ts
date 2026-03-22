@@ -202,6 +202,10 @@ function syncSessionState(state: AppState) {
   });
 }
 
+// BUG-08 fix: resetFlow가 DB를 비우는 동안 importSongs의 DB 쓰기가 겹치는 경쟁 조건을 방지합니다.
+// in-memory 상태 리셋은 즉시(동기) 일어나며, DB 쓰기만 이 Promise를 기다립니다.
+let _pendingReset: Promise<void> | null = null;
+
 function getDefaultState() {
   return {
     locale: "ko" as AppLocale,
@@ -272,14 +276,18 @@ export const useAppStore = create<AppState>()((set, get) => ({
     const nextState = get();
     const userId = nextState.user?.id;
     if (!userId) return;
-    void Promise.all([
-      replaceLibrary(userId, nextSongs, nextRatings, nextMatches),
-      saveSessionState(userId, {
-        activeSource: nextState.activeSource,
-        lastMatchedAt: nextLastMatchedAt,
-        likedSongsImport: nextState.likedSongsImport,
-      }),
-    ]).catch((error) => {
+    void (async () => {
+      // BUG-08 fix: resetFlow의 DB 삭제가 완료된 후에 새 데이터를 삽입합니다.
+      if (_pendingReset) await _pendingReset;
+      await Promise.all([
+        replaceLibrary(userId, nextSongs, nextRatings, nextMatches),
+        saveSessionState(userId, {
+          activeSource: nextState.activeSource,
+          lastMatchedAt: nextLastMatchedAt,
+          likedSongsImport: nextState.likedSongsImport,
+        }),
+      ]);
+    })().catch((error) => {
       console.error("Failed to sync imported songs.", error);
     });
   },
@@ -386,9 +394,14 @@ export const useAppStore = create<AppState>()((set, get) => ({
       hydrated: state.hydrated,
     }));
     if (!userId) return;
-    void clearUserAppState(userId).catch((error) => {
-      console.error("Failed to clear remote session.", error);
-    });
+    // BUG-08 fix: _pendingReset에 등록해 importSongs가 이 완료를 기다릴 수 있도록 합니다.
+    _pendingReset = clearUserAppState(userId)
+      .catch((error) => {
+        console.error("Failed to clear remote session.", error);
+      })
+      .finally(() => {
+        _pendingReset = null;
+      });
   },
   replaceRemoteState: (state) =>
     set({
