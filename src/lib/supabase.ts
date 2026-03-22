@@ -1,5 +1,6 @@
 import { createClient, type Session } from '@supabase/supabase-js';
 import type { AuthSnapshot, UserProfile } from '../types';
+import { clearSpotifyDirectSession, isSpotifyDirectRedirectConfigured, signInWithSpotifyDirect } from './spotifyDirectAuth';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -75,6 +76,12 @@ export function getAuthCallbackErrorMessage(location: Location = window.location
   return rawError ? decodeURIComponent(rawError.replace(/\+/g, ' ')) : undefined;
 }
 
+export function getAuthCallbackErrorCode(location: Location = window.location) {
+  const searchParams = new URLSearchParams(location.search);
+  const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+  return searchParams.get('error_code') ?? hashParams.get('error_code') ?? undefined;
+}
+
 export async function exchangeCodeForSessionIfPresent(location: Location = window.location) {
   if (!supabase) {
     return { errorMessage: 'Supabase 환경변수가 설정되지 않았어요.' };
@@ -93,9 +100,6 @@ export async function exchangeCodeForSessionIfPresent(location: Location = windo
 
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
-  // PKCE 플로우에서 provider_token은 코드 교환 시점에만 session에 포함됩니다.
-  // 이후 getSession() / onAuthStateChange에서는 포함되지 않을 수 있으므로
-  // 여기서 즉시 저장합니다. (BUG-01 fix)
   if (!error && data.session) {
     const providerToken = data.session.provider_token ?? undefined;
     const userId = data.session.user?.id;
@@ -109,22 +113,32 @@ export async function exchangeCodeForSessionIfPresent(location: Location = windo
   };
 }
 
-export function getSpotifyLoginTroubleshooting(errorMessage?: string) {
+export function getSpotifyLoginTroubleshooting(
+  errorMessage?: string,
+  errorCode?: string,
+) {
   if (!errorMessage) return undefined;
 
   const normalizedMessage = errorMessage.toLowerCase();
-  if (!normalizedMessage.includes('external provider')) {
+  const normalizedCode = errorCode?.toLowerCase();
+  const isProviderProfileFailure =
+    normalizedMessage.includes('external provider') || normalizedCode === 'unexpected_failure';
+
+  if (!isProviderProfileFailure) {
     return undefined;
   }
 
-  return [
-    'Spotify Developer Dashboard의 Redirect URI는 Supabase 프로젝트의 OAuth Callback URL(https://<project-ref>.supabase.co/auth/v1/callback)이어야 해요.',
-    '앱의 /auth/callback 주소는 Spotify가 아니라 Supabase Auth의 Redirect URLs 허용 목록에만 추가해야 해요.',
-    'Spotify provider의 Client ID / Client Secret이 최근에 바뀌었다면 Supabase Dashboard > Authentication > Providers > Spotify에도 동일하게 다시 저장해주세요.',
-  ];
+  return {
+    title: 'Supabase를 거치는 Spotify 소셜 로그인 단계에서 실패했어요.',
+    items: [
+      '이 배포본은 이제 Supabase Social Login 대신 Spotify PKCE 로그인을 사용해요. 새로고침 후 다시 로그인하면 Supabase provider profile 오류를 우회합니다.',
+      '만약 기존 탭에서 같은 오류가 계속 보이면 브라우저에서 현재 /auth/callback 탭을 닫고 홈으로 돌아가서 다시 "Spotify로 시작하기"를 눌러주세요.',
+      '그래도 실패하면 Spotify Developer Dashboard의 User Management, 앱 소유자 Premium 상태, 그리고 Supabase의 Spotify Client ID / Secret 저장값을 다시 확인해주세요.',
+    ],
+  };
 }
 
-export async function signInWithSpotify() {
+async function signInWithSupabaseSpotify() {
   if (!supabase) {
     throw new Error('Supabase 환경변수가 설정되지 않았어요.');
   }
@@ -149,9 +163,25 @@ export async function signInWithSpotify() {
   if (error) throw error;
 }
 
+export async function signInWithSpotify() {
+  const directConfigured = await isSpotifyDirectRedirectConfigured().catch(() => false);
+  if (directConfigured) {
+    await signInWithSpotifyDirect();
+    return;
+  }
+
+  await signInWithSupabaseSpotify();
+}
+
 export async function signOut() {
-  if (!supabase) return;
+  clearSpotifyDirectSession();
   clearSpotifyToken();
+  if (!supabase) return;
+
+  const { data, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+  if (!data.session) return;
+
   const { error } = await supabase.auth.signOut();
   if (error) throw error;
 }
@@ -165,6 +195,7 @@ export async function sessionToAuthSnapshot(session: Session | null): Promise<Au
   }
 
   return {
+    provider: 'supabase',
     accessToken: providerToken,
     refreshToken: session.provider_refresh_token ?? undefined,
   };
