@@ -81,10 +81,10 @@ async function fetchAllPages<T>(
   return results;
 }
 
-function normalizeTrack(track: SpotifyTrack, playlistId: string, index: number): Song | undefined {
+function normalizeTrack(track: SpotifyTrack, playlistId: string, _index: number): Song | undefined {
   if (!track.id || !track.name) return undefined;
   return {
-    id: `${playlistId}-${track.id}-${index}`,
+    id: crypto.randomUUID(),
     spotifyTrackId: track.id,
     playlistId,
     title: track.name,

@@ -13,7 +13,7 @@ A React + TypeScript + Vite web app for ranking Spotify playlist tracks by prefe
   - rating gap `>= 150` → binary win/lose
   - rating gap `< 150` → 5-point scale
 - Ranking board with convergence, search, and tier filtering.
-- Supabase SQL schema for `songs`, `ratings`, and `matches` with RLS keyed by `user_id`.
+- Supabase SQL schema for `sorter_state`, `songs`, `ratings`, and `matches` with RLS keyed by `user_id`.
 
 ## Local development
 
@@ -43,5 +43,5 @@ Create a `.env` from `.env.example` and provide your Supabase project URL and an
 
 - `src/lib/spotify.ts` fetches Spotify profile, playlists, tracks, and lazy-loads the Web Playback SDK.
 - `src/lib/elo.ts` contains rating initialization, K-factor logic, matchmaking, and convergence helpers.
-- `src/store/appStore.ts` stores auth, playlist, song, rating, and match state in Zustand with persist middleware.
+- `src/store/appStore.ts` stores UI state in Zustand and syncs changes to Supabase instead of browser localStorage.
 - `src/pages/*` implements landing, playlist setup, bucket setup, match loop, and ranking views.
