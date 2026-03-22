@@ -77,6 +77,7 @@ export async function signInWithSpotify() {
         'playlist-read-private',
         'playlist-read-collaborative',
         'user-library-read',
+        'user-read-playback-state',
         'streaming',
         'user-modify-playback-state',
       ].join(' '),
