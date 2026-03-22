@@ -39,6 +39,16 @@ Create a `.env` from `.env.example` and provide your Supabase project URL and an
    - `user-modify-playback-state`
 4. Run `supabase/schema.sql` against your project to create the RLS-protected tables.
 
+
+## Spotify login troubleshooting
+
+If Spotify shows `Error getting user profile from external provider` even though the redirect URLs look correct:
+
+1. Open **Spotify Developer Dashboard → User Management** and add the exact Spotify account email that is trying to log in. Development mode apps can still issue OAuth tokens for non-allowlisted users, but Spotify documents that API requests for those users can fail with `403`, which Supabase surfaces as a provider-profile error.
+2. Check whether the Spotify app owner still has **Spotify Premium**. Spotify's February 6, 2026 platform update says this became required for existing Development Mode apps starting **March 9, 2026**.
+3. Re-copy the current Spotify **Client ID** and **Client Secret** into **Supabase → Authentication → Providers → Spotify** and save again.
+4. Verify that the Supabase callback URL is still listed in Spotify Redirect URIs, and that your app's `/auth/callback` URL is still listed in Supabase Redirect URLs.
+
 ## Architecture overview
 
 - `src/lib/spotify.ts` fetches Spotify profile, playlists, tracks, and lazy-loads the Web Playback SDK.

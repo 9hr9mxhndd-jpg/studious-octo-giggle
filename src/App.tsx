@@ -11,11 +11,33 @@ import { LandingPage } from './pages/LandingPage';
 import { MatchPage } from './pages/MatchPage';
 import { RankingPage } from './pages/RankingPage';
 import { useAppStore } from './store/appStore';
+import type { SpotifyProduct, UserProfile } from './types';
 
 function RequireSource({ children }: { children: React.ReactNode }) {
   const activeSource = useAppStore((s) => s.activeSource);
   if (!activeSource) return <Navigate to="/" replace />;
   return <>{children}</>;
+}
+
+
+function resolveSpotifyProduct(nextProduct: SpotifyProduct, previousUser?: UserProfile) {
+  if (nextProduct !== 'unknown') return nextProduct;
+  return previousUser?.spotifyProduct ?? 'unknown';
+}
+
+function applySpotifyProduct(
+  user: UserProfile | undefined,
+  spotifyProduct: SpotifyProduct,
+  previousUser?: UserProfile,
+) {
+  if (!user) return undefined;
+
+  const resolvedProduct = resolveSpotifyProduct(spotifyProduct, previousUser ?? user);
+  return {
+    ...user,
+    spotifyProduct: resolvedProduct,
+    isPremium: resolvedProduct === 'premium',
+  };
 }
 
 function hasAuthCallbackError(search: string) {
@@ -54,7 +76,12 @@ export default function App() {
         const product = await getSpotifyProduct(nextAuth?.accessToken).catch(() => 'unknown' as const);
         if (!cancelled) {
           setAuth(nextAuth);
-          setUser(profileFromSession(session, product));
+          const currentUser = useAppStore.getState().user;
+          setUser(applySpotifyProduct(
+            profileFromSession(session, product),
+            product,
+            currentUser,
+          ));
         }
       } catch {
         if (!cancelled) {
@@ -133,11 +160,7 @@ export default function App() {
       const currentUser = useAppStore.getState().user;
       if (currentUser?.id !== user.id) return;
 
-      setUser({
-        ...currentUser,
-        spotifyProduct: product,
-        isPremium: product === 'premium',
-      });
+      setUser(applySpotifyProduct(currentUser, product, currentUser));
     };
 
     const reload = async (completeHydration: boolean) => {
