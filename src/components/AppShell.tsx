@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import clsx from 'clsx';
+import { useState } from 'react';
 import { signOut } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
 
@@ -8,6 +9,8 @@ const LOCK = '🔒';
 export function AppShell() {
   const user = useAppStore((s) => s.user);
   const activeSource = useAppStore((s) => s.activeSource);
+  const [logoutPending, setLogoutPending] = useState(false);
+  const [logoutError, setLogoutError] = useState<string>();
   
   const location = useLocation();
   const unlocked = Boolean(activeSource);
@@ -42,19 +45,39 @@ export function AppShell() {
               {user && (
                 <button
                   type="button"
+                  disabled={logoutPending}
                   onClick={() => {
-                    void signOut().catch(() => undefined).finally(() => {
-                      useAppStore.getState().setAuth(undefined);
-                      useAppStore.getState().setUser(undefined);
-                    });
+                    if (logoutPending) return;
+                    setLogoutPending(true);
+                    setLogoutError(undefined);
+                    void signOut()
+                      .catch((error: unknown) => {
+                        setLogoutError(
+                          error instanceof Error
+                            ? error.message
+                            : '로그아웃 중 오류가 발생했어요. 다시 시도해주세요.',
+                        );
+                      })
+                      .finally(() => {
+                        setLogoutPending(false);
+                      });
                   }}
                   className="rounded-full border border-warm-200 bg-white px-3 py-1 text-xs text-warm-500 hover:text-warm-700"
                 >
-                  {user.isPremium ? '✦ ' : ''}{user.email?.split('@')[0] ?? '내 계정'} · 로그아웃
+                  {user.isPremium ? '✦ ' : ''}
+                  {user.email?.split('@')[0] ?? '내 계정'} · {logoutPending ? '로그아웃 중…' : '로그아웃'}
                 </button>
               )}
             </div>
           </div>
+
+          {logoutError && (
+            <div className="pb-3">
+              <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-600">
+                {logoutError}
+              </p>
+            </div>
+          )}
 
           {/* 탭 바 */}
           <div className="flex">

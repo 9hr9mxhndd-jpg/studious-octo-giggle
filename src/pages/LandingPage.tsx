@@ -94,6 +94,7 @@ export function LandingPage() {
   } = useAppStore();
 
   const [loginError, setLoginError] = useState<string>();
+  const [playlistError, setPlaylistError] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>(
@@ -108,12 +109,28 @@ export function LandingPage() {
   useEffect(() => {
     if (!user || playlists.length > 0) return;
     let cancelled = false;
+    if (!auth?.accessToken) {
+      setPlaylistError(
+        "Spotify 접근 토큰을 불러오지 못했어요. 다시 로그인해주세요.",
+      );
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
-    getUserPlaylists(auth?.accessToken)
+    setPlaylistError(undefined);
+    getUserPlaylists(auth.accessToken)
       .then((list) => {
         if (!cancelled) setPlaylists(list);
       })
-      .catch(() => {})
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setPlaylistError(
+          error instanceof Error
+            ? error.message
+            : "플레이리스트를 불러오지 못했어요. 잠시 후 다시 시도해주세요.",
+        );
+      })
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
@@ -394,6 +411,17 @@ export function LandingPage() {
         <p className="mb-3 text-sm font-medium text-warm-700">
           {hasResume ? "다른 플레이리스트 선택" : "소팅할 플레이리스트 선택"}
         </p>
+
+        {playlistError && (
+          <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+            <p className="text-xs font-medium text-red-600">
+              플레이리스트 동기화 오류
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-red-500">
+              {playlistError}
+            </p>
+          </div>
+        )}
 
         {loading ? (
           <div className="space-y-2">
