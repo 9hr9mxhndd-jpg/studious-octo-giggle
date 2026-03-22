@@ -175,9 +175,11 @@ export function useSpotifyPlayer() {
       const message = error instanceof Error ? error.message : '재생 오류';
       setState((s) => ({
         ...s,
-        error: message.includes('Device not found')
-          ? 'Spotify Web Player 장치를 찾지 못했어요. 모바일에서는 재생 버튼을 한 번 더 누르거나, Spotify 앱에서 재생 대상을 “Sorter Web Player”로 전환해 주세요.'
-          : message,
+        error: message.includes('Permissions missing')
+          ? 'Spotify 재생 권한이 부족해요. 로그아웃 후 다시 로그인해서 재생 권한을 승인해주세요.'
+          : message.includes('Device not found')
+            ? 'Spotify Web Player 장치를 찾지 못했어요. 모바일에서는 재생 버튼을 한 번 더 누르거나, Spotify 앱에서 재생 대상을 “Sorter Web Player”로 전환해 주세요.'
+            : message,
       }));
     }
   }

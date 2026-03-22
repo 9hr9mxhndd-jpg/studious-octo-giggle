@@ -117,12 +117,10 @@ export function MatchPage() {
     song,
     rating,
     onSelect,
-    selectLabel,
   }: {
     song: Song;
     rating: number;
     onSelect: () => void;
-    selectLabel: string;
   }) {
     return (
       <article className="rounded-2xl border border-warm-200 bg-white p-3 transition hover:border-warm-400 hover:-translate-y-0.5">
@@ -143,16 +141,7 @@ export function MatchPage() {
           <span className="rounded-full bg-warm-100 px-1.5 py-0.5 text-[9px] text-warm-500">
             {Math.round(rating)}
           </span>
-          <div className="flex items-center gap-1.5">
-            <PlayButton song={song} />
-            <button
-              type="button"
-              onClick={onSelect}
-              className="rounded-full border border-warm-200 px-2 py-1 text-[10px] font-medium text-warm-700 transition hover:bg-warm-50 active:scale-95"
-            >
-              {selectLabel}
-            </button>
-          </div>
+          <PlayButton song={song} />
         </div>
       </article>
     );
@@ -186,7 +175,6 @@ export function MatchPage() {
           song={matchup.left}
           rating={matchup.leftRating.rating}
           onSelect={() => submitMatch(1)}
-          selectLabel="A 선택"
         />
 
         {/* 중간 VS */}
@@ -210,7 +198,6 @@ export function MatchPage() {
           song={matchup.right}
           rating={matchup.rightRating.rating}
           onSelect={() => submitMatch(0)}
-          selectLabel="B 선택"
         />
       </div>
 
