@@ -1,8 +1,9 @@
 import { useEffect } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
+import { loadUserAppState, subscribeToUserAppState } from './lib/appSync';
 import { getSpotifyProduct } from './lib/spotify';
-import { profileFromSession, sessionToAuthSnapshot, supabase } from './lib/supabase';
+import { clearSpotifyToken, loadSpotifyToken, profileFromSession, sessionToAuthSnapshot, supabase } from './lib/supabase';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { BucketSetupPage } from './pages/BucketSetupPage';
 import { LandingPage } from './pages/LandingPage';
@@ -20,44 +21,109 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const setAuth = useAppStore((s) => s.setAuth);
+  const user = useAppStore((s) => s.user);
   const setUser = useAppStore((s) => s.setUser);
   const hydrated = useAppStore((s) => s.hydrated);
   const setHydrated = useAppStore((s) => s.setHydrated);
+  const replaceRemoteState = useAppStore((s) => s.replaceRemoteState);
+  const clearSyncedState = useAppStore((s) => s.clearSyncedState);
 
   useEffect(() => {
-    if (!supabase) { setHydrated(true); return; }
+    if (!supabase) {
+      setHydrated(true);
+      return;
+    }
+
     const client = supabase;
     let cancelled = false;
 
+    const syncSession = async (sessionOverride?: Awaited<ReturnType<typeof client.auth.getSession>>['data']['session']) => {
+      try {
+        const session = sessionOverride ?? (await client.auth.getSession()).data.session;
+        const nextAuth = await sessionToAuthSnapshot(session);
+        const product = await getSpotifyProduct(nextAuth?.accessToken);
+        if (!cancelled) {
+          setAuth(nextAuth);
+          setUser(profileFromSession(session, product));
+        }
+      } catch {
+        if (!cancelled) {
+          setAuth(undefined);
+          setUser(undefined);
+        }
+      }
+    };
+
     const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
-      const auth = sessionToAuthSnapshot(session);
-      setAuth(auth);
-      void getSpotifyProduct(auth?.accessToken)
-        .then((product) => { setUser(profileFromSession(session, product)); })
-        .catch(() => { setUser(profileFromSession(session, 'unknown')); });
+      void syncSession(session);
 
       if (event === 'SIGNED_IN' && location.pathname === '/auth/callback') {
         navigate('/', { replace: true });
       }
       if (event === 'SIGNED_OUT') {
+        clearSpotifyToken();
+        clearSyncedState();
+        setHydrated(true);
         navigate('/', { replace: true });
       }
     });
 
-    async function syncSession() {
-      try {
-        const { data, error } = await client.auth.getSession();
-        if (error) throw error;
-        const auth = sessionToAuthSnapshot(data.session);
-        const product = await getSpotifyProduct(auth?.accessToken);
-        if (!cancelled) { setAuth(auth); setUser(profileFromSession(data.session, product)); setHydrated(true); }
-      } catch {
-        if (!cancelled) { setAuth(undefined); setUser(undefined); setHydrated(true); }
+    void syncSession().finally(() => {
+      if (!cancelled && !user?.id) {
+        setHydrated(true);
       }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, [clearSyncedState, location.pathname, navigate, setAuth, setHydrated, setUser, user?.id]);
+
+  useEffect(() => {
+    if (!supabase || !user?.id) {
+      if (!user) {
+        clearSyncedState();
+        setHydrated(true);
+      }
+      return;
     }
-    void syncSession();
-    return () => { cancelled = true; subscription.unsubscribe(); };
-  }, [location.pathname, navigate, setAuth, setHydrated, setUser]);
+
+    let cancelled = false;
+    setHydrated(false);
+
+    const reload = async () => {
+      try {
+        const remoteState = await loadUserAppState(user.id);
+        if (cancelled) return;
+        replaceRemoteState(remoteState);
+        const remoteToken = remoteState.spotifyProviderToken ?? loadSpotifyToken();
+        if (remoteToken) {
+          setAuth({ ...useAppStore.getState().auth, accessToken: remoteToken });
+          const product = await getSpotifyProduct(remoteToken);
+          if (!cancelled && user) {
+            setUser({ ...user, spotifyProduct: product, isPremium: product === 'premium' });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load synced app state.', error);
+      } finally {
+        if (!cancelled) {
+          setHydrated(true);
+        }
+      }
+    };
+
+    void reload();
+    const unsubscribe = subscribeToUserAppState(user.id, () => {
+      void reload();
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [clearSyncedState, replaceRemoteState, setAuth, setHydrated, setUser, user?.id]);
 
   if (!hydrated) {
     return (
