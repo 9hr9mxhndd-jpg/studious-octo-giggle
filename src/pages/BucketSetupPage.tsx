@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import type { Tier } from '../types';
@@ -10,6 +10,29 @@ export function BucketSetupPage() {
   const user = useAppStore((s) => s.user);
   const [history, setHistory] = useState<Array<{ id: string; prevTier?: Tier; prevUncertain: boolean }>>([]);
   const [playing, setPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  function handlePlay() {
+    if (!current) return;
+    if (user?.isPremium) {
+      // 프리미엄: Spotify 앱 또는 웹에서 전곡 재생
+      window.open(`https://open.spotify.com/track/${current.spotifyTrackId}`, '_blank');
+      return;
+    }
+    // Free: previewUrl로 미리듣기
+    if (!current.previewUrl) return;
+    if (playing) {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      setPlaying(false);
+    } else {
+      const audio = new Audio(current.previewUrl);
+      audio.play().catch(() => {});
+      audio.onended = () => setPlaying(false);
+      audioRef.current = audio;
+      setPlaying(true);
+    }
+  }
 
   const unassigned = songs.filter((s) => s.tier === undefined);
   const current = unassigned[0];
@@ -96,7 +119,7 @@ export function BucketSetupPage() {
                 {current.previewUrl && user?.isPremium !== undefined ? (
                   <button
                     type="button"
-                    onClick={() => setPlaying((p) => !p)}
+                    onClick={handlePlay}
                     className="flex items-center gap-1.5 rounded-full border border-warm-200 px-3 py-1 text-[11px] text-warm-500 hover:text-warm-700"
                   >
                     <svg width="8" height="8" viewBox="0 0 10 10">
@@ -134,9 +157,9 @@ export function BucketSetupPage() {
       {/* 티어 버튼 */}
       <div className="grid grid-cols-3 gap-2">
         {[
-          { tier: 1 as Tier, label: 'T1 선호', sub: '이 곡 좋아', cls: 'border-green-300 hover:bg-green-50 hover:border-green-500' },
-          { tier: 2 as Tier, label: 'T2 보통', sub: '나쁘진 않아', cls: 'border-blue-300 hover:bg-blue-50 hover:border-blue-500' },
-          { tier: 3 as Tier, label: 'T3 기타', sub: '별로 / 모르겠어', cls: 'border-warm-200 hover:bg-warm-50' },
+          { tier: 1 as Tier, label: 'T1 최애', sub: '이 곡 사랑해', cls: 'border-green-300 hover:bg-green-50 hover:border-green-500' },
+          { tier: 2 as Tier, label: 'T2 선호', sub: '이 곡 좋아', cls: 'border-blue-300 hover:bg-blue-50 hover:border-blue-500' },
+          { tier: 3 as Tier, label: 'T3 보통', sub: '나쁘진 않아', cls: 'border-warm-200 hover:bg-warm-50' },
         ].map((btn) => (
           <button
             key={btn.tier}
@@ -173,9 +196,9 @@ export function BucketSetupPage() {
       {/* 퍼센트 카드 */}
       <div className="grid grid-cols-3 gap-2">
         {[
-          { label: 'T1 선호', val: pct(c1), cnt: c1, color: 'text-green-700' },
-          { label: 'T2 보통', val: pct(c2), cnt: c2, color: 'text-blue-700' },
-          { label: 'T3 기타', val: pct(c3), cnt: c3, color: 'text-warm-600' },
+          { label: 'T1 최애', val: pct(c1), cnt: c1, color: 'text-green-700' },
+          { label: 'T2 선호', val: pct(c2), cnt: c2, color: 'text-blue-700' },
+          { label: 'T3 보통', val: pct(c3), cnt: c3, color: 'text-warm-600' },
         ].map((item) => (
           <div key={item.label} className="rounded-lg bg-warm-100 px-3 py-2">
             <p className="text-[10px] text-warm-400">{item.label}</p>
