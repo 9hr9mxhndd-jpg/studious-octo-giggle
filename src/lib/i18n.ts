@@ -26,7 +26,7 @@ const translations = {
       reconnect: 'Reconnect Spotify',
       demo: 'Continue in demo mode',
       loginHelp:
-        'If Spotify login is denied on a preview deployment, add that preview URL to the Supabase allowed redirect URLs and set VITE_SUPABASE_REDIRECT_TO for the deployment.',
+        'If Spotify login is denied on a preview deployment, add that preview URL to the Supabase allowed redirect URLs, keep the Supabase callback URL registered in Spotify, and confirm the login account is allowlisted in Spotify Developer Dashboard > User Management.',
       importedSongs: 'imported songs',
       completedBattles: 'completed battles',
       rls: 'RLS-ready Supabase schema included',
@@ -68,7 +68,7 @@ const translations = {
       none: 'none',
       loginDeniedTitle: 'Preview login help',
       loginDeniedBody:
-        'Spotify OAuth can be denied on preview URLs unless the preview domain is listed in Supabase Auth redirect URLs and in your Spotify provider settings. Set VITE_SUPABASE_REDIRECT_TO to the allowed preview URL if needed.',
+        'Spotify OAuth can still fail on preview URLs even when the redirect is correct. Add the preview domain to Supabase Auth redirect URLs, keep the Supabase callback URL registered in Spotify, and verify the test user is allowlisted in Spotify Developer Dashboard > User Management.',
       cardSelected: 'Selected for import',
       cardIdle: 'Choose this playlist',
       trackCount: 'tracks',
@@ -169,7 +169,7 @@ const translations = {
       reconnect: 'Spotify 다시 연결',
       demo: '데모 모드로 계속',
       loginHelp:
-        '프리뷰 배포에서 Spotify 로그인이 거부되면 해당 프리뷰 URL을 Supabase 허용 리디렉션 URL에 추가하고 배포 환경에 VITE_SUPABASE_REDIRECT_TO를 설정하세요.',
+        '프리뷰 배포에서 Spotify 로그인이 거부되면 해당 프리뷰 URL을 Supabase 허용 리디렉션 URL에 추가하고 VITE_SUPABASE_REDIRECT_TO를 설정하세요. Spotify에는 Supabase 콜백 URL이 등록되어 있어야 하고, 실제 로그인 계정도 Spotify Developer Dashboard > User Management에 허용되어 있어야 합니다.',
       importedSongs: '가져온 곡',
       completedBattles: '완료된 대결',
       rls: 'RLS 적용 Supabase 스키마 포함',
@@ -211,7 +211,7 @@ const translations = {
       none: '없음',
       loginDeniedTitle: '프리뷰 로그인 안내',
       loginDeniedBody:
-        '프리뷰 URL에서 Spotify OAuth가 거부될 수 있습니다. Supabase Auth 허용 리디렉션 URL과 Spotify 공급자 설정에 프리뷰 도메인을 추가하고, 필요하면 VITE_SUPABASE_REDIRECT_TO를 설정하세요.',
+        '프리뷰 URL에서 Spotify OAuth가 거부될 수 있습니다. Supabase Auth 허용 리디렉션 URL에 프리뷰 도메인을 추가하고, 필요하면 VITE_SUPABASE_REDIRECT_TO를 설정하세요. Spotify에는 Supabase 콜백 URL이 등록되어 있어야 하고, 테스트 계정도 Spotify Developer Dashboard > User Management에 허용되어 있어야 합니다.',
       cardSelected: '가져올 대상으로 선택됨',
       cardIdle: '이 플레이리스트 선택',
       trackCount: '곡',

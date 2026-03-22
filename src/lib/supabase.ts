@@ -9,7 +9,7 @@ export const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
 export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
-        flowType: 'implicit',
+        flowType: 'pkce',
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
@@ -61,6 +61,56 @@ export function getSpotifyRedirectUrl() {
   url.search = '';
   url.hash = '';
   return url.toString();
+}
+
+export function getAuthCallbackErrorMessage(location: Location = window.location) {
+  const searchParams = new URLSearchParams(location.search);
+  const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const rawError =
+    searchParams.get('error_description') ??
+    searchParams.get('error') ??
+    hashParams.get('error_description') ??
+    hashParams.get('error');
+
+  return rawError ? decodeURIComponent(rawError.replace(/\+/g, ' ')) : undefined;
+}
+
+export async function exchangeCodeForSessionIfPresent(location: Location = window.location) {
+  if (!supabase) {
+    return { errorMessage: 'Supabase 환경변수가 설정되지 않았어요.' };
+  }
+
+  const errorMessage = getAuthCallbackErrorMessage(location);
+  if (errorMessage) {
+    return { errorMessage };
+  }
+
+  const params = new URLSearchParams(location.search);
+  const code = params.get('code');
+  if (!code) {
+    return { errorMessage: undefined };
+  }
+
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  return {
+    errorMessage: error ? error.message : undefined,
+  };
+}
+
+export function getSpotifyLoginTroubleshooting(errorMessage?: string) {
+  if (!errorMessage) return undefined;
+
+  const normalizedMessage = errorMessage.toLowerCase();
+  if (!normalizedMessage.includes('external provider')) {
+    return undefined;
+  }
+
+  return [
+    '지금 보이는 설정처럼 Redirect URL은 대체로 맞을 가능성이 높아요. 대신 Spotify Developer Dashboard > User Management에 실제 로그인에 사용하는 Spotify 계정을 추가했는지 먼저 확인해주세요.',
+    'Spotify Development mode 앱은 2026년 3월 9일부터 기존 앱도 Premium 보유한 앱 소유자와 허용된 사용자만 안정적으로 사용할 수 있어요. 앱 소유자 Premium 상태와 테스트 계정 허용 목록을 확인해주세요.',
+    'Supabase Dashboard > Authentication > Providers > Spotify의 Client ID / Client Secret이 Spotify Developer Dashboard의 현재 값과 완전히 같은지도 다시 저장해서 맞춰주세요.',
+    'Spotify Redirect URIs에는 Supabase callback URL(https://<project-ref>.supabase.co/auth/v1/callback)이 포함되어야 하고, 앱의 /auth/callback은 Supabase Redirect URLs에도 등록되어 있어야 해요.',
+  ];
 }
 
 export async function signInWithSpotify() {

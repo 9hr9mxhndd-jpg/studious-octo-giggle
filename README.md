@@ -24,12 +24,12 @@ npm run dev
 
 The Vite dev server is configured to run on `http://localhost:3000` so it matches the local Spotify/Supabase callback flow.
 
-Create a `.env` from `.env.example` and provide your Supabase project URL and anon key. `VITE_SUPABASE_REDIRECT_TO` should be the site origin for your deployment; the app automatically sends Spotify OAuth back through `/auth/callback`. For preview deployments, add the resulting callback URL to your Supabase and Spotify OAuth settings. After Spotify approval, the app returns authenticated users to `/`, where they select a playlist and then continue to `/bucket`.
+Create a `.env` from `.env.example` and provide your Supabase project URL and anon key. `VITE_SUPABASE_REDIRECT_TO` should be the site origin for your deployment; the app automatically sends Spotify OAuth back through `/auth/callback` and exchanges the returned auth code in the callback page. For preview deployments, add the resulting app callback URL to the Supabase redirect allow list. After Spotify approval, the app returns authenticated users to `/`, where they select a playlist and then continue to `/bucket`.
 
 ## Supabase + Spotify setup notes
 
 1. In Supabase Auth, enable the Spotify provider.
-2. Add the callback URL for your environment. For local development, use `http://localhost:3000/auth/callback` in Supabase Auth redirect URLs and in the Spotify provider settings. Set `VITE_SUPABASE_REDIRECT_TO=http://localhost:3000` so the app can derive that callback path.
+2. Register both sides of the redirect flow. For local development, add `http://localhost:3000/auth/callback` to Supabase Auth redirect URLs and set `VITE_SUPABASE_REDIRECT_TO=http://localhost:3000` so the app can derive that callback path. In the Spotify Developer Dashboard, make sure the Supabase project callback URL (`https://<project-ref>.supabase.co/auth/v1/callback`) is present in Redirect URIs, because Spotify redirects to Supabase first and Supabase then redirects back to your app callback URL.
 3. Use the following scopes:
    - `user-read-private`
    - `user-read-email`
@@ -38,6 +38,16 @@ Create a `.env` from `.env.example` and provide your Supabase project URL and an
    - `streaming`
    - `user-modify-playback-state`
 4. Run `supabase/schema.sql` against your project to create the RLS-protected tables.
+
+
+## Spotify login troubleshooting
+
+If Spotify shows `Error getting user profile from external provider` even though the redirect URLs look correct:
+
+1. Open **Spotify Developer Dashboard → User Management** and add the exact Spotify account email that is trying to log in. Development mode apps can still issue OAuth tokens for non-allowlisted users, but Spotify documents that API requests for those users can fail with `403`, which Supabase surfaces as a provider-profile error.
+2. Check whether the Spotify app owner still has **Spotify Premium**. Spotify's February 6, 2026 platform update says this became required for existing Development Mode apps starting **March 9, 2026**.
+3. Re-copy the current Spotify **Client ID** and **Client Secret** into **Supabase → Authentication → Providers → Spotify** and save again.
+4. Verify that the Supabase callback URL is still listed in Spotify Redirect URIs, and that your app's `/auth/callback` URL is still listed in Supabase Redirect URLs.
 
 ## Architecture overview
 

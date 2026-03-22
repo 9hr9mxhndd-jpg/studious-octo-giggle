@@ -4,6 +4,7 @@ import { convergenceFromMatches } from "../lib/elo";
 import { getUserPlaylists, importPlaylistTracks } from "../lib/spotify";
 import { signInWithSpotify } from "../lib/supabase";
 import { useAppStore, type ActiveSource } from "../store/appStore";
+import type { SpotifyProduct } from "../types";
 
 function getSourceSongCount(
   sourceId: string | undefined,
@@ -18,6 +19,31 @@ function estimateSession(count: number): string {
   if (count <= 150) return "약 1~2 세션";
   if (count <= 400) return "약 2~3 세션";
   return "약 3~4 세션";
+}
+
+
+function getSpotifyPlanBadge(product: SpotifyProduct) {
+  switch (product) {
+    case 'premium':
+      return {
+        label: 'Premium',
+        description: 'Spotify Premium 연결됨',
+        className: 'border-amber-300 bg-amber-50 text-amber-700',
+      };
+    case 'free':
+    case 'open':
+      return {
+        label: 'Free',
+        description: 'Spotify Free 연결됨',
+        className: 'border-warm-200 bg-warm-100 text-warm-400',
+      };
+    default:
+      return {
+        label: '확인 중',
+        description: 'Spotify 이용권 확인 중',
+        className: 'border-sky-200 bg-sky-50 text-sky-700',
+      };
+  }
 }
 
 type ResumeAction = {
@@ -193,6 +219,7 @@ export function LandingPage() {
         })
       : undefined;
   const primaryAction = hasSelectedSessionData ? selectedResumeAction : undefined;
+  const spotifyPlanBadge = getSpotifyPlanBadge(user?.spotifyProduct ?? 'unknown');
 
   async function handleStart() {
     if (!selectedId || !selectedPlaylist) return;
@@ -353,13 +380,13 @@ export function LandingPage() {
             {user.email}
           </p>
           <p className="text-xs text-warm-400">
-            Spotify {user.isPremium ? "Premium" : "Free"} 연결됨
+            {spotifyPlanBadge.description}
           </p>
         </div>
         <span
-          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${user.isPremium ? "border-amber-300 bg-amber-50 text-amber-700" : "border-warm-200 bg-warm-100 text-warm-400"}`}
+          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${spotifyPlanBadge.className}`}
         >
-          {user.isPremium ? "Premium" : "Free"}
+          {spotifyPlanBadge.label}
         </span>
       </div>
 
