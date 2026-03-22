@@ -60,6 +60,7 @@ interface AppState {
   selectPlaylist: (playlistId: string) => void;
   setLikedSongsImport: (likedSongsImport?: LikedSongsImportState) => void;
   setActiveSource: (source?: ActiveSource) => void;
+  // 새 플레이리스트를 선택해 라이브러리를 통째로 교체할 때만 사용합니다.
   importSongs: (songs: Song[]) => void;
   appendSongs: (songs: Song[]) => void;
   assignTier: (songId: string, tier: Tier, uncertain: boolean) => void;
