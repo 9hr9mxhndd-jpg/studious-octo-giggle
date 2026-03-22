@@ -91,7 +91,19 @@ export async function exchangeCodeForSessionIfPresent(location: Location = windo
     return { errorMessage: undefined };
   }
 
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+
+  // PKCE 플로우에서 provider_token은 코드 교환 시점에만 session에 포함됩니다.
+  // 이후 getSession() / onAuthStateChange에서는 포함되지 않을 수 있으므로
+  // 여기서 즉시 저장합니다. (BUG-01 fix)
+  if (!error && data.session) {
+    const providerToken = data.session.provider_token ?? undefined;
+    const userId = data.session.user?.id;
+    if (userId && providerToken) {
+      await persistSpotifyToken(userId, providerToken).catch(() => {});
+    }
+  }
+
   return {
     errorMessage: error ? error.message : undefined,
   };
