@@ -188,7 +188,7 @@ function syncActiveSourceTrackCount(
 }
 
 function getRemoteSyncUserId(state: Pick<AppState, 'auth' | 'user'>) {
-  if (state.auth?.provider !== 'supabase') return undefined;
+  if (!state.auth?.provider) return undefined;
   return state.user?.id;
 }
 
