@@ -246,6 +246,9 @@ async function signInWithSupabaseSpotify(
     options: {
       scopes,
       redirectTo: getSpotifyRedirectUrl(),
+      queryParams: {
+        show_dialog: 'true',
+      },
     },
   });
 
