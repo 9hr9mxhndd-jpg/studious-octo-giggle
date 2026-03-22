@@ -9,7 +9,7 @@ export const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
 export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
-        flowType: 'implicit',
+        flowType: 'pkce',
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
@@ -61,6 +61,55 @@ export function getSpotifyRedirectUrl() {
   url.search = '';
   url.hash = '';
   return url.toString();
+}
+
+export function getAuthCallbackErrorMessage(location: Location = window.location) {
+  const searchParams = new URLSearchParams(location.search);
+  const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const rawError =
+    searchParams.get('error_description') ??
+    searchParams.get('error') ??
+    hashParams.get('error_description') ??
+    hashParams.get('error');
+
+  return rawError ? decodeURIComponent(rawError.replace(/\+/g, ' ')) : undefined;
+}
+
+export async function exchangeCodeForSessionIfPresent(location: Location = window.location) {
+  if (!supabase) {
+    return { errorMessage: 'Supabase 환경변수가 설정되지 않았어요.' };
+  }
+
+  const errorMessage = getAuthCallbackErrorMessage(location);
+  if (errorMessage) {
+    return { errorMessage };
+  }
+
+  const params = new URLSearchParams(location.search);
+  const code = params.get('code');
+  if (!code) {
+    return { errorMessage: undefined };
+  }
+
+  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  return {
+    errorMessage: error ? error.message : undefined,
+  };
+}
+
+export function getSpotifyLoginTroubleshooting(errorMessage?: string) {
+  if (!errorMessage) return undefined;
+
+  const normalizedMessage = errorMessage.toLowerCase();
+  if (!normalizedMessage.includes('external provider')) {
+    return undefined;
+  }
+
+  return [
+    'Spotify Developer Dashboard의 Redirect URI는 Supabase 프로젝트의 OAuth Callback URL(https://<project-ref>.supabase.co/auth/v1/callback)이어야 해요.',
+    '앱의 /auth/callback 주소는 Spotify가 아니라 Supabase Auth의 Redirect URLs 허용 목록에만 추가해야 해요.',
+    'Spotify provider의 Client ID / Client Secret이 최근에 바뀌었다면 Supabase Dashboard > Authentication > Providers > Spotify에도 동일하게 다시 저장해주세요.',
+  ];
 }
 
 export async function signInWithSpotify() {
