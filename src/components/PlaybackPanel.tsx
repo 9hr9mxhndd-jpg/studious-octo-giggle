@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getCopy } from '../lib/i18n';
-import { loadSpotifySdk } from '../lib/spotify';
+import { loadSdk } from '../lib/spotifyPlayer';
 import { useAppStore } from '../store/appStore';
 import type { Song, UserProfile } from '../types';
 
@@ -21,9 +21,9 @@ export function PlaybackPanel({ user, song }: PlaybackPanelProps) {
 
     let cancelled = false;
 
-    void loadSpotifySdk().then((ready) => {
+    void loadSdk().then(() => {
       if (!cancelled) {
-        setSdkReady(ready);
+        setSdkReady(true);
       }
     });
 
