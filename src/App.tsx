@@ -143,7 +143,7 @@ export default function App() {
   useEffect(() => {
     if (!sessionResolved) return;
 
-    const remoteSyncEnabled = auth?.provider === 'supabase' && Boolean(user?.id);
+    const remoteSyncEnabled = Boolean(auth?.provider && user?.id);
 
     if (!remoteSyncEnabled || !user) {
       if (!user?.id) {

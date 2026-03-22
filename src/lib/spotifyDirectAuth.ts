@@ -1,5 +1,5 @@
 import type { AuthSnapshot, SpotifyProduct, UserProfile } from '../types';
-import { clearSpotifyToken, getSpotifyRedirectUrl, saveSpotifyToken } from './supabase';
+import { clearSpotifyToken, ensureSupabaseSession, getSpotifyRedirectUrl, saveSpotifyToken } from './supabase';
 
 const CLIENT_ID_ENDPOINT = '/api/spotify-client-id';
 const SESSION_STORAGE_KEY = 'spotify-direct-session';
@@ -164,6 +164,19 @@ function buildDirectAuthSnapshot(session: StoredSpotifyDirectSession): AuthSnaps
   };
 }
 
+async function attachSupabaseUser(profile: UserProfile): Promise<UserProfile> {
+  const session = await ensureSupabaseSession();
+  const supabaseUserId = session?.user?.id;
+  if (!supabaseUserId) {
+    throw new Error('Supabase anonymous 세션을 만들지 못했어요. Auth 설정에서 Anonymous sign-ins 를 켜주세요.');
+  }
+
+  return {
+    ...profile,
+    id: supabaseUserId,
+  };
+}
+
 async function exchangeToken(body: URLSearchParams) {
   const response = await fetch('https://accounts.spotify.com/api/token', {
     method: 'POST',
@@ -254,9 +267,19 @@ export async function restoreSpotifyDirectSession(): Promise<{
   const session = await refreshStoredSession(stored);
   if (!session) return undefined;
 
+  const user = await attachSupabaseUser(session.user);
+  if (user.id !== session.user.id) {
+    const nextSession = { ...session, user };
+    setStoredSession(nextSession);
+    return {
+      auth: buildDirectAuthSnapshot(nextSession),
+      user,
+    };
+  }
+
   return {
     auth: buildDirectAuthSnapshot(session),
-    user: session.user,
+    user,
   };
 }
 
@@ -335,7 +358,8 @@ export async function exchangeSpotifyDirectCodeForSessionIfPresent(
       throw new Error('Spotify 액세스 토큰이 비어 있어요. 다시 시도해주세요.');
     }
 
-    const user = await fetchSpotifyProfile(accessToken);
+    const spotifyUser = await fetchSpotifyProfile(accessToken);
+    const user = await attachSupabaseUser(spotifyUser);
     const session: StoredSpotifyDirectSession = {
       accessToken,
       refreshToken: token.refresh_token,

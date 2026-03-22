@@ -4,7 +4,7 @@ import { clearSpotifyDirectSession, isSpotifyDirectRedirectConfigured, signInWit
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-const spotifyDirectAuthEnabled = import.meta.env.VITE_SPOTIFY_DIRECT_AUTH === 'true';
+const spotifyDirectAuthEnabled = import.meta.env.VITE_SPOTIFY_DIRECT_AUTH !== 'false';
 const SPOTIFY_OAUTH_ATTEMPT_STORAGE_KEY = 'spotify-supabase-oauth-attempt';
 const SPOTIFY_OAUTH_RETRY_WINDOW_MS = 5 * 60 * 1000;
 const SPOTIFY_BASE_SCOPES = [
@@ -32,6 +32,18 @@ export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
       },
     })
   : undefined;
+
+export async function ensureSupabaseSession() {
+  if (!supabase) return undefined;
+
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+  if (sessionData.session) return sessionData.session;
+
+  const { data, error } = await supabase.auth.signInAnonymously();
+  if (error) throw error;
+  return data.session ?? undefined;
+}
 
 let spotifyProviderToken: string | undefined;
 
@@ -224,7 +236,7 @@ export function getSpotifyLoginTroubleshooting(
       'Spotify 앱이 Development Mode 라면 Spotify Developer Dashboard > User Management 에 현재 로그인하는 Spotify 계정 이메일이 반드시 등록되어 있어야 합니다.',
       'Spotify의 2026-03-09 정책 이후에는 기존 Development Mode 앱에서 앱 소유자 Premium 상태가 끊기면 외부 provider 프로필 조회가 실패할 수 있습니다. 앱 소유자 계정 플랜도 확인하세요.',
       '브라우저에서 예전 /auth/callback 탭을 다시 열거나 이미 사용된 code 를 재사용하면 같은 에러 화면이 반복될 수 있어요. 현재 콜백 탭을 닫고 홈에서 로그인 버튼을 다시 눌러 새 흐름으로 시작해 보세요.',
-      '직접 Spotify PKCE 로그인을 의도했다면 배포 환경에서 VITE_SPOTIFY_DIRECT_AUTH=true 를 켜고, 해당 앱의 정확한 /auth/callback URL을 Spotify Redirect URI에도 추가해야 합니다. 이 설정이 없으면 기본 Supabase 흐름으로만 동작합니다.',
+      '직접 Spotify PKCE 로그인으로 우회하려면 현재 앱의 정확한 /auth/callback URL이 Spotify Redirect URI에도 등록되어 있어야 하고, Supabase 쪽에는 Anonymous sign-ins 가 켜져 있어야 데이터 동기화가 계속됩니다.',
       '프리뷰 배포에서만 실패한다면 VITE_SUPABASE_REDIRECT_TO 가 현재 배포 origin 과 정확히 일치하는지, 그리고 그 URL 이 Supabase 허용 리디렉션 목록에 있는지도 확인하세요.',
     ],
   };
