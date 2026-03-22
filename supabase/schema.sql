@@ -1,4 +1,3 @@
-create extension if not exists pgcrypto;
 
 create table if not exists public.sorter_state (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -11,6 +10,21 @@ create table if not exists public.sorter_state (
   spotify_provider_token text,
   updated_at timestamptz not null default now()
 );
+
+create or replace function public.set_sorter_state_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists set_sorter_state_updated_at on public.sorter_state;
+create trigger set_sorter_state_updated_at
+before update on public.sorter_state
+for each row execute function public.set_sorter_state_updated_at();
 
 create table if not exists public.songs (
   id uuid primary key default gen_random_uuid(),
@@ -50,21 +64,6 @@ create table if not exists public.matches (
   created_at timestamptz not null default now()
 );
 
-create or replace function public.set_sorter_state_updated_at()
-returns trigger
-language plpgsql
-as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$;
-
-drop trigger if exists set_sorter_state_updated_at on public.sorter_state;
-create trigger set_sorter_state_updated_at
-before update on public.sorter_state
-for each row execute function public.set_sorter_state_updated_at();
-
 alter table public.sorter_state enable row level security;
 alter table public.songs enable row level security;
 alter table public.ratings enable row level security;
@@ -84,4 +83,7 @@ create policy "ratings owned by user" on public.ratings
 
 drop policy if exists "matches owned by user" on public.matches;
 create policy "matches owned by user" on public.matches
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+create policy "sorter state owned by user" on public.sorter_state
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

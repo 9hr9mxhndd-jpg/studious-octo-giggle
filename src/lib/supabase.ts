@@ -99,11 +99,7 @@ export async function sessionToAuthSnapshot(session: Session | null): Promise<Au
 
   const providerToken = session.provider_token ?? loadSpotifyToken();
   if (session.user.id && providerToken) {
-    try {
-      await persistSpotifyToken(session.user.id, providerToken);
-    } catch (error) {
-      console.warn('Failed to persist Spotify provider token.', error);
-    }
+    await persistSpotifyToken(session.user.id, providerToken);
   }
 
   return {
