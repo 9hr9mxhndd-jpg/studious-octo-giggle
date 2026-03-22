@@ -121,6 +121,7 @@ export function LandingPage() {
 
   const [loginError, setLoginError] = useState<string>();
   const [playlistError, setPlaylistError] = useState<string>();
+  const [importError, setImportError] = useState<string>();
   const [loading, setLoading] = useState(false);
   const [starting, setStarting] = useState(false);
   const [selectedId, setSelectedId] = useState<string | undefined>(
@@ -249,6 +250,7 @@ export function LandingPage() {
     }
 
     setStarting(true);
+    setImportError(undefined);
     try {
       const imported = await importPlaylistTracks(
         selectedId,
@@ -263,6 +265,11 @@ export function LandingPage() {
       navigate("/bucket");
     } catch (e) {
       console.error(e);
+      setImportError(
+        e instanceof Error
+          ? e.message
+          : '트랙을 불러오지 못했어요. 잠시 후 다시 시도해주세요.',
+      );
     } finally {
       setStarting(false);
     }
@@ -532,6 +539,12 @@ export function LandingPage() {
             {starting ? "···" : "→"}
           </span>
         </button>
+        {importError && (
+          <div className="mt-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
+            <p className="text-xs font-medium text-red-600">트랙 불러오기 실패</p>
+            <p className="mt-1 text-xs leading-relaxed text-red-500">{importError}</p>
+          </div>
+        )}
       </div>
     </div>
   );
