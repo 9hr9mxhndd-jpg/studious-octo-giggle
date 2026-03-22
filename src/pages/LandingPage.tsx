@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { convergenceFromMatches } from "../lib/elo";
 import { getUserPlaylists, importPlaylistTracks } from "../lib/spotify";
 import { signInWithSpotify } from "../lib/supabase";
 import { useAppStore, type ActiveSource } from "../store/appStore";
@@ -18,6 +19,12 @@ function estimateSession(count: number): string {
   if (count <= 400) return "약 2~3 세션";
   return "약 3~4 세션";
 }
+
+type ResumeAction = {
+  cta: string;
+  description: string;
+  to: "/bucket" | "/match" | "/ranking";
+};
 
 export function LandingPage() {
   const navigate = useNavigate();
@@ -42,6 +49,10 @@ export function LandingPage() {
     selectedPlaylistId,
   );
 
+  useEffect(() => {
+    setSelectedId(selectedPlaylistId);
+  }, [selectedPlaylistId]);
+
   // 플레이리스트 불러오기
   useEffect(() => {
     if (!user || playlists.length > 0) return;
@@ -61,16 +72,15 @@ export function LandingPage() {
   }, [user, auth?.accessToken, playlists.length, setPlaylists]);
 
   const selectedPlaylist = playlists.find((p) => p.id === selectedId);
-  const hasResume = Boolean(
-    activeSource && songs.length > 0 && matches.length > 0,
-  );
-  const activeSourceSongCount = getSourceSongCount(activeSource?.id, songs);
-  const classifiedSongCount = activeSource
-    ? songs.filter(
-        (song) =>
-          song.playlistId === activeSource.id && song.tier !== undefined,
-      ).length
-    : 0;
+  const hasResume = Boolean(activeSource && songs.length > 0);
+  const activeSongs = activeSource
+    ? songs.filter((song) => song.playlistId === activeSource.id)
+    : [];
+  const activeSourceSongCount = activeSongs.length;
+  const classifiedSongCount = activeSongs.filter(
+    (song) => song.tier !== undefined,
+  ).length;
+  const unclassifiedSongCount = activeSongs.length - classifiedSongCount;
   const selectedPlaylistSongCount = selectedPlaylist
     ? getSourceSongCount(selectedPlaylist.id, songs)
     : 0;
@@ -80,6 +90,38 @@ export function LandingPage() {
       : selectedPlaylistSongCount;
   const selectedPlaylistDisplayCount =
     selectedPlaylistAppTrackCount || selectedPlaylist?.trackCount || 0;
+  const sortingReady = classifiedSongCount >= 2;
+  const rankingReady =
+    classifiedSongCount > 0 &&
+    unclassifiedSongCount === 0 &&
+    matches.length > 0 &&
+    convergenceFromMatches(matches.length).value >= 80;
+
+  const resumeAction: ResumeAction | undefined = hasResume
+    ? unclassifiedSongCount > 0
+      ? {
+          to: "/bucket",
+          cta: "티어 분류 계속",
+          description: `${classifiedSongCount}/${activeSourceSongCount || activeSource?.trackCount || 0}곡 분류 완료`,
+        }
+      : rankingReady
+        ? {
+            to: "/ranking",
+            cta: "랭킹 확인",
+            description: `${matches.length}회 비교 완료 · 현재 랭킹 보기`,
+          }
+        : sortingReady
+          ? {
+              to: "/match",
+              cta: "소팅 계속",
+              description: `${matches.length}회 비교 완료 · 더 정확하게 정렬하기`,
+            }
+          : {
+              to: "/ranking",
+              cta: "랭킹 확인",
+              description: "현재까지의 결과 보기",
+            }
+    : undefined;
 
   async function handleStart() {
     if (!selectedId || !selectedPlaylist) return;
@@ -108,7 +150,8 @@ export function LandingPage() {
   }
 
   function handleResume() {
-    navigate("/bucket");
+    if (!resumeAction) return;
+    navigate(resumeAction.to);
   }
 
   function handleNewSession() {
@@ -228,7 +271,7 @@ export function LandingPage() {
       </div>
 
       {/* 이전 세션 이어하기 */}
-      {hasResume && activeSource && (
+      {resumeAction && activeSource && (
         <div className="rounded-xl border border-brand-200 bg-brand-50 p-4">
           <div className="mb-3 flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-100 text-base">
@@ -239,8 +282,7 @@ export function LandingPage() {
                 {activeSource.name}
               </p>
               <p className="text-xs text-warm-500">
-                {matches.length}회 비교 완료 · {classifiedSongCount}/
-                {activeSourceSongCount || activeSource.trackCount}곡 분류
+                {resumeAction.description}
               </p>
             </div>
           </div>
@@ -258,7 +300,7 @@ export function LandingPage() {
               onClick={handleResume}
               className="rounded-lg bg-warm-800 py-2.5 text-xs font-medium text-white transition hover:bg-warm-700"
             >
-              이어하기 →
+              {resumeAction.cta} →
             </button>
             <button
               type="button"
