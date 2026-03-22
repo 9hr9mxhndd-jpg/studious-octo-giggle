@@ -24,12 +24,12 @@ npm run dev
 
 The Vite dev server is configured to run on `http://localhost:3000` so it matches the local Spotify/Supabase callback flow.
 
-Create a `.env` from `.env.example` and provide your Supabase project URL and anon key. `VITE_SUPABASE_REDIRECT_TO` should be the site origin for your deployment; the app automatically sends Spotify OAuth back through `/auth/callback`. For preview deployments, add the resulting callback URL to your Supabase and Spotify OAuth settings. After Spotify approval, the app returns authenticated users to `/`, where they select a playlist and then continue to `/bucket`.
+Create a `.env` from `.env.example` and provide your Supabase project URL and anon key. `VITE_SUPABASE_REDIRECT_TO` should be the site origin for your deployment; the app automatically sends Spotify OAuth back through `/auth/callback` and exchanges the returned auth code in the callback page. For preview deployments, add the resulting app callback URL to the Supabase redirect allow list only. After Spotify approval, the app returns authenticated users to `/`, where they select a playlist and then continue to `/bucket`.
 
 ## Supabase + Spotify setup notes
 
 1. In Supabase Auth, enable the Spotify provider.
-2. Add the callback URL for your environment. For local development, use `http://localhost:3000/auth/callback` in Supabase Auth redirect URLs and in the Spotify provider settings. Set `VITE_SUPABASE_REDIRECT_TO=http://localhost:3000` so the app can derive that callback path.
+2. Add the callback URLs in the correct places. For local development, add `http://localhost:3000/auth/callback` to Supabase Auth redirect URLs and set `VITE_SUPABASE_REDIRECT_TO=http://localhost:3000` so the app can derive that callback path. In the Spotify Developer Dashboard, the Redirect URI must be your Supabase project callback URL (`https://<project-ref>.supabase.co/auth/v1/callback`), not your app's `/auth/callback` URL.
 3. Use the following scopes:
    - `user-read-private`
    - `user-read-email`
