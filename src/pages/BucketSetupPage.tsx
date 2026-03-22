@@ -14,7 +14,7 @@ export function BucketSetupPage() {
   const [previewPlaying, setPreviewPlaying] = useState(false);
 
   // 프리미엄 전용 Web Playback SDK
-  const { ready, playing: sdkPlaying, currentTrackId, togglePlay } = useSpotifyPlayer();
+  const { ready, playing: sdkPlaying, currentTrackId, error: playerError, togglePlay } = useSpotifyPlayer();
 
   const unassigned = songs.filter((s) => s.tier === undefined);
   const current = unassigned[0];
@@ -191,6 +191,13 @@ export function BucketSetupPage() {
           <p className="mt-1 text-xs text-warm-500">소팅 탭으로 이동하세요</p>
         </div>
       )}
+
+      {user?.isPremium && playerError ? (
+        <div className="flex items-center gap-2 rounded-xl border border-warm-100 bg-warm-50 px-3 py-2">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-500 flex-shrink-0" />
+          <span className="text-[10px] text-warm-500">{playerError}</span>
+        </div>
+      ) : null}
 
       {/* 티어 버튼 */}
       <div className="grid grid-cols-3 gap-2">

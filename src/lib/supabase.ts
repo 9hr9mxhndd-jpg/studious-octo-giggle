@@ -17,20 +17,32 @@ export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
     })
   : undefined;
 
-// ── Spotify provider_token은 implicit flow에서 최초 1회만 session에 포함됨
-//    이후 getSession() 복원 시 null이 되므로 localStorage에 별도 저장
-const SPOTIFY_TOKEN_KEY = 'spotify_provider_token';
+let spotifyProviderToken: string | undefined;
 
 export function saveSpotifyToken(token: string) {
-  try { localStorage.setItem(SPOTIFY_TOKEN_KEY, token); } catch {}
+  spotifyProviderToken = token;
 }
 
 export function loadSpotifyToken(): string | undefined {
-  try { return localStorage.getItem(SPOTIFY_TOKEN_KEY) ?? undefined; } catch { return undefined; }
+  return spotifyProviderToken;
 }
 
 export function clearSpotifyToken() {
-  try { localStorage.removeItem(SPOTIFY_TOKEN_KEY); } catch {}
+  spotifyProviderToken = undefined;
+}
+
+export async function persistSpotifyToken(userId: string, token?: string) {
+  if (token) {
+    saveSpotifyToken(token);
+  } else {
+    clearSpotifyToken();
+  }
+  if (!supabase) return;
+  const { error } = await supabase.from('sorter_state').upsert({
+    user_id: userId,
+    spotify_provider_token: token ?? null,
+  }, { onConflict: 'user_id' });
+  if (error) throw error;
 }
 
 function getBaseRedirectUrl() {
@@ -82,17 +94,20 @@ export async function signOut() {
   if (error) throw error;
 }
 
-export function sessionToAuthSnapshot(session: Session | null): AuthSnapshot | undefined {
+export async function sessionToAuthSnapshot(session: Session | null): Promise<AuthSnapshot | undefined> {
   if (!session) return undefined;
 
-  // provider_token이 있으면 저장, 없으면 이전에 저장된 값 사용
-  const providerToken = session.provider_token ?? undefined;
-  if (providerToken) {
-    saveSpotifyToken(providerToken);
+  const providerToken = session.provider_token ?? loadSpotifyToken();
+  if (session.user.id && providerToken) {
+    try {
+      await persistSpotifyToken(session.user.id, providerToken);
+    } catch (error) {
+      console.warn('Failed to persist Spotify provider token.', error);
+    }
   }
 
   return {
-    accessToken: providerToken ?? loadSpotifyToken(),
+    accessToken: providerToken,
     refreshToken: session.provider_refresh_token ?? undefined,
   };
 }
