@@ -1,11 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { exchangeSpotifyDirectCodeForSessionIfPresent } from '../lib/spotifyDirectAuth';
 import {
   exchangeCodeForSessionIfPresent,
   getAuthCallbackErrorCode,
   getAuthCallbackErrorMessage,
+  clearPendingSpotifyOAuthAttempt,
   getSpotifyLoginTroubleshooting,
+  markSpotifyOAuthRetry,
+  shouldRetrySpotifyOAuth,
+  signInWithSpotify,
   supabase,
 } from '../lib/supabase';
 
@@ -14,6 +17,8 @@ export function AuthCallbackPage() {
   const [errorMessage, setErrorMessage] = useState<string | undefined>(() => getAuthCallbackErrorMessage());
   const [errorCode] = useState<string | undefined>(() => getAuthCallbackErrorCode());
   const [exchanging, setExchanging] = useState(!getAuthCallbackErrorMessage());
+  const [retrying, setRetrying] = useState(false);
+  const retriedRef = useRef(false);
   const troubleshooting = useMemo(
     () => getSpotifyLoginTroubleshooting(errorMessage, errorCode),
     [errorCode, errorMessage],
@@ -21,42 +26,52 @@ export function AuthCallbackPage() {
 
   useEffect(() => {
     if (errorMessage) {
+      const shouldRetry = !retriedRef.current && shouldRetrySpotifyOAuth(errorMessage, errorCode);
+      if (shouldRetry) {
+        retriedRef.current = true;
+        markSpotifyOAuthRetry();
+        setRetrying(true);
+        setExchanging(true);
+        void signInWithSpotify({ preserveRetryCount: true })
+          .catch((error: unknown) => {
+            setErrorMessage(
+              error instanceof Error
+                ? error.message
+                : 'Spotify 로그인을 다시 시작하지 못했어요. 잠시 후 다시 시도해주세요.',
+            );
+            setRetrying(false);
+            setExchanging(false);
+          });
+        return;
+      }
+
       setExchanging(false);
+      setRetrying(false);
       return;
     }
 
     let cancelled = false;
 
-    void exchangeSpotifyDirectCodeForSessionIfPresent()
-      .then(async (directResult) => {
-        if (cancelled) return;
+    if (!supabase) {
+      setErrorMessage('Supabase 환경변수가 설정되지 않았어요.');
+      setExchanging(false);
+      setRetrying(false);
+      return;
+    }
 
-        if (directResult.handled) {
-          if (directResult.errorMessage) {
-            setErrorMessage(directResult.errorMessage);
-            setExchanging(false);
-            return;
-          }
-
-          window.location.replace('/');
-          return;
-        }
-
-        if (!supabase) {
-          setErrorMessage('Supabase 환경변수가 설정되지 않았어요.');
-          setExchanging(false);
-          return;
-        }
-
+    void Promise.resolve()
+      .then(async () => {
         const { errorMessage: nextErrorMessage } = await exchangeCodeForSessionIfPresent();
         if (cancelled) return;
 
         if (nextErrorMessage) {
           setErrorMessage(nextErrorMessage);
           setExchanging(false);
+          setRetrying(false);
           return;
         }
 
+        clearPendingSpotifyOAuthAttempt();
         navigate('/', { replace: true });
       })
       .catch((error: unknown) => {
@@ -67,6 +82,7 @@ export function AuthCallbackPage() {
             : '로그인 세션을 완료하지 못했어요. 다시 시도해주세요.',
         );
         setExchanging(false);
+        setRetrying(false);
       });
 
     return () => {
@@ -94,13 +110,39 @@ export function AuthCallbackPage() {
             </ul>
           </div>
         ) : null}
-        <button
-          type="button"
-          onClick={() => navigate('/', { replace: true })}
-          className="rounded-full border border-warm-200 px-4 py-2 text-xs text-warm-500 hover:text-warm-700"
-        >
-          홈으로 돌아가기
-        </button>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setRetrying(true);
+              setExchanging(true);
+              clearPendingSpotifyOAuthAttempt();
+              void signInWithSpotify({ preserveRetryCount: true })
+                .catch((error: unknown) => {
+                  setErrorMessage(
+                    error instanceof Error
+                      ? error.message
+                      : 'Spotify 로그인을 다시 시작하지 못했어요. 잠시 후 다시 시도해주세요.',
+                  );
+                  setRetrying(false);
+                  setExchanging(false);
+                });
+            }}
+            className="rounded-full bg-warm-800 px-4 py-2 text-xs font-semibold text-white hover:bg-warm-900"
+          >
+            Spotify로 다시 시도
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              clearPendingSpotifyOAuthAttempt();
+              navigate('/', { replace: true });
+            }}
+            className="rounded-full border border-warm-200 px-4 py-2 text-xs text-warm-500 hover:text-warm-700"
+          >
+            홈으로 돌아가기
+          </button>
+        </div>
       </div>
     );
   }
@@ -109,7 +151,11 @@ export function AuthCallbackPage() {
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-warm-50">
       <div className="h-5 w-5 animate-spin rounded-full border-2 border-warm-300 border-t-warm-700" />
       <p className="text-sm text-warm-400">
-        {exchanging ? 'Spotify 로그인 세션을 확인하는 중…' : '로그인 처리 중…'}
+        {retrying
+          ? 'Spotify 로그인을 한 번 더 시도하는 중…'
+          : exchanging
+            ? 'Spotify 로그인 세션을 확인하는 중…'
+            : '로그인 처리 중…'}
       </p>
     </div>
   );

@@ -3,7 +3,6 @@ import type { Session } from '@supabase/supabase-js';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { loadUserAppState, subscribeToUserAppState } from './lib/appSync';
-import { restoreSpotifyDirectSession } from './lib/spotifyDirectAuth';
 import { getSpotifyProduct } from './lib/spotify';
 import { clearSpotifyToken, loadSpotifyToken, profileFromSession, saveSpotifyToken, sessionToAuthSnapshot, supabase } from './lib/supabase';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
@@ -65,17 +64,12 @@ export default function App() {
     const client = supabase;
     let cancelled = false;
 
-    const applyDirectSession = async (gen: number) => {
-      const directSession = await restoreSpotifyDirectSession().catch(() => undefined);
-      if (!cancelled && gen === resolveGenRef.current) {
-        setAuth(directSession?.auth);
-        setUser(directSession?.user);
-      }
-    };
-
     const syncSession = async (session: Session | null, gen: number) => {
       if (!session) {
-        await applyDirectSession(gen);
+        if (!cancelled && gen === resolveGenRef.current) {
+          setAuth(undefined);
+          setUser(undefined);
+        }
         return;
       }
 
@@ -104,7 +98,10 @@ export default function App() {
       setSessionResolved(false);
       try {
         if (!client) {
-          await applyDirectSession(gen);
+          if (!cancelled && gen === resolveGenRef.current) {
+            setAuth(undefined);
+            setUser(undefined);
+          }
           return;
         }
 
