@@ -5,6 +5,20 @@ import { clearSpotifyDirectSession, isSpotifyDirectRedirectConfigured, signInWit
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const spotifyDirectAuthEnabled = import.meta.env.VITE_SPOTIFY_DIRECT_AUTH === 'true';
+const SPOTIFY_OAUTH_ATTEMPT_STORAGE_KEY = 'spotify-supabase-oauth-attempt';
+const SPOTIFY_OAUTH_RETRY_WINDOW_MS = 5 * 60 * 1000;
+const SPOTIFY_BASE_SCOPES = [
+  'user-read-private',
+  'user-read-email',
+  'playlist-read-private',
+  'playlist-read-collaborative',
+  'user-library-read',
+].join(' ');
+const SPOTIFY_PLAYBACK_SCOPES = [
+  'user-read-playback-state',
+  'streaming',
+  'user-modify-playback-state',
+].join(' ');
 
 export const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
 
@@ -20,6 +34,77 @@ export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
   : undefined;
 
 let spotifyProviderToken: string | undefined;
+
+interface PendingSpotifyOAuthAttempt {
+  startedAt: number;
+  retryCount: number;
+}
+
+function isBrowser() {
+  return typeof window !== 'undefined';
+}
+
+function readPendingSpotifyOAuthAttempt() {
+  if (!isBrowser()) return undefined;
+
+  try {
+    const raw = window.sessionStorage.getItem(SPOTIFY_OAUTH_ATTEMPT_STORAGE_KEY);
+    if (!raw) return undefined;
+    return JSON.parse(raw) as PendingSpotifyOAuthAttempt;
+  } catch {
+    return undefined;
+  }
+}
+
+function writePendingSpotifyOAuthAttempt(attempt: PendingSpotifyOAuthAttempt) {
+  if (!isBrowser()) return;
+  window.sessionStorage.setItem(SPOTIFY_OAUTH_ATTEMPT_STORAGE_KEY, JSON.stringify(attempt));
+}
+
+function markPendingSpotifyOAuthAttempt(retryCount = 0) {
+  writePendingSpotifyOAuthAttempt({
+    startedAt: Date.now(),
+    retryCount,
+  });
+}
+
+export function clearPendingSpotifyOAuthAttempt() {
+  if (!isBrowser()) return;
+  window.sessionStorage.removeItem(SPOTIFY_OAUTH_ATTEMPT_STORAGE_KEY);
+}
+
+export function shouldRetrySpotifyOAuth(
+  errorMessage?: string,
+  errorCode?: string,
+) {
+  if (!errorMessage) return false;
+
+  const normalizedMessage = errorMessage.toLowerCase();
+  const normalizedCode = errorCode?.toLowerCase();
+  const isProviderProfileFailure =
+    normalizedMessage.includes('external provider') || normalizedCode === 'unexpected_failure';
+
+  if (!isProviderProfileFailure) return false;
+
+  const pendingAttempt = readPendingSpotifyOAuthAttempt();
+  if (!pendingAttempt) return false;
+
+  const isFreshAttempt = Date.now() - pendingAttempt.startedAt <= SPOTIFY_OAUTH_RETRY_WINDOW_MS;
+  return isFreshAttempt && pendingAttempt.retryCount < 1;
+}
+
+export function markSpotifyOAuthRetry() {
+  const pendingAttempt = readPendingSpotifyOAuthAttempt();
+  if (!pendingAttempt) {
+    markPendingSpotifyOAuthAttempt(1);
+    return;
+  }
+
+  writePendingSpotifyOAuthAttempt({
+    ...pendingAttempt,
+    retryCount: pendingAttempt.retryCount + 1,
+  });
+}
 
 export function saveSpotifyToken(token: string) {
   spotifyProviderToken = token;
@@ -102,6 +187,7 @@ export async function exchangeCodeForSessionIfPresent(location: Location = windo
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
   if (!error && data.session) {
+    clearPendingSpotifyOAuthAttempt();
     const providerToken = data.session.provider_token ?? undefined;
     const userId = data.session.user?.id;
     if (userId && providerToken) {
@@ -132,39 +218,44 @@ export function getSpotifyLoginTroubleshooting(
   return {
     title: 'Supabase를 거치는 Spotify 소셜 로그인 단계에서 실패했어요.',
     items: [
-      '기본 로그인 흐름은 Supabase Spotify Social Login이에요. Spotify Redirect URI는 앱의 /auth/callback 이 아니라 Supabase callback URL로 유지해야 합니다.',
-      '만약 기존 탭에서 같은 오류가 계속 보이면 브라우저에서 현재 /auth/callback 탭을 닫고 홈으로 돌아가서 다시 "Spotify로 시작하기"를 눌러주세요.',
-      '직접 Spotify PKCE 로그인을 쓰려면 배포 환경에서 VITE_SPOTIFY_DIRECT_AUTH=true 를 설정하고, 해당 앱의 /auth/callback URL을 Spotify Redirect URI에 추가해야 합니다.',
+      '가장 흔한 원인은 Redirect URI 위치가 뒤바뀐 경우예요. 기본 로그인 흐름에서는 Spotify Redirect URI를 앱의 /auth/callback 이 아니라 Supabase callback URL(https://<project-ref>.supabase.co/auth/v1/callback)로 유지해야 합니다.',
+      '동시에 Supabase Auth Redirect URLs에는 현재 배포 origin의 정확한 /auth/callback URL이 등록되어 있어야 해요. 프로덕션, 프리뷰, 커스텀 도메인을 모두 쓰면 각각을 전부 추가해야 합니다.',
+      'Supabase Authentication > Providers > Spotify 에 저장된 Client ID / Client Secret 이 오래됐거나 잘못 붙여넣어졌다면 동일한 오류가 납니다. Spotify Developer Dashboard 값으로 다시 복사해 저장해 보세요.',
+      'Spotify 앱이 Development Mode 라면 Spotify Developer Dashboard > User Management 에 현재 로그인하는 Spotify 계정 이메일이 반드시 등록되어 있어야 합니다.',
+      'Spotify의 2026-03-09 정책 이후에는 기존 Development Mode 앱에서 앱 소유자 Premium 상태가 끊기면 외부 provider 프로필 조회가 실패할 수 있습니다. 앱 소유자 계정 플랜도 확인하세요.',
+      '브라우저에서 예전 /auth/callback 탭을 다시 열거나 이미 사용된 code 를 재사용하면 같은 에러 화면이 반복될 수 있어요. 현재 콜백 탭을 닫고 홈에서 로그인 버튼을 다시 눌러 새 흐름으로 시작해 보세요.',
+      '직접 Spotify PKCE 로그인을 의도했다면 배포 환경에서 VITE_SPOTIFY_DIRECT_AUTH=true 를 켜고, 해당 앱의 정확한 /auth/callback URL을 Spotify Redirect URI에도 추가해야 합니다. 이 설정이 없으면 기본 Supabase 흐름으로만 동작합니다.',
+      '프리뷰 배포에서만 실패한다면 VITE_SUPABASE_REDIRECT_TO 가 현재 배포 origin 과 정확히 일치하는지, 그리고 그 URL 이 Supabase 허용 리디렉션 목록에 있는지도 확인하세요.',
     ],
   };
 }
 
-async function signInWithSupabaseSpotify() {
+async function signInWithSupabaseSpotify(
+  preserveRetryCount = false,
+  scopes = SPOTIFY_BASE_SCOPES,
+) {
   if (!supabase) {
     throw new Error('Supabase 환경변수가 설정되지 않았어요.');
   }
 
+  const retryCount = preserveRetryCount ? readPendingSpotifyOAuthAttempt()?.retryCount ?? 0 : 0;
+  markPendingSpotifyOAuthAttempt(retryCount);
+
   const { error } = await supabase.auth.signInWithOAuth({
     provider: 'spotify',
     options: {
-      scopes: [
-        'user-read-private',
-        'user-read-email',
-        'playlist-read-private',
-        'playlist-read-collaborative',
-        'user-library-read',
-        'user-read-playback-state',
-        'streaming',
-        'user-modify-playback-state',
-      ].join(' '),
+      scopes,
       redirectTo: getSpotifyRedirectUrl(),
     },
   });
 
-  if (error) throw error;
+  if (error) {
+    clearPendingSpotifyOAuthAttempt();
+    throw error;
+  }
 }
 
-export async function signInWithSpotify() {
+export async function signInWithSpotify(options?: { preserveRetryCount?: boolean }) {
   if (spotifyDirectAuthEnabled) {
     const directConfigured = await isSpotifyDirectRedirectConfigured().catch(() => false);
     if (directConfigured) {
@@ -173,11 +264,19 @@ export async function signInWithSpotify() {
     }
   }
 
-  await signInWithSupabaseSpotify();
+  await signInWithSupabaseSpotify(options?.preserveRetryCount);
+}
+
+export async function signInWithSpotifyPlaybackPermissions() {
+  await signInWithSupabaseSpotify(
+    false,
+    [SPOTIFY_BASE_SCOPES, SPOTIFY_PLAYBACK_SCOPES].join(' '),
+  );
 }
 
 export async function signOut() {
   clearSpotifyDirectSession();
+  clearPendingSpotifyOAuthAttempt();
   clearSpotifyToken();
   if (!supabase) return;
 
