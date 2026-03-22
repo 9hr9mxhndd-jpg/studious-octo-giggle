@@ -1,5 +1,6 @@
 import { demoPlaylists, demoSongs } from './sampleData';
 import { buildSongId } from './songIdentity';
+import { refreshSpotifyDirectAccessToken } from './spotifyDirectAuth';
 import { persistSpotifyToken, supabase } from './supabase';
 import type { PlaylistSummary, Song, SpotifyProduct } from '../types';
 
@@ -54,16 +55,22 @@ async function spotifyFetch<T>(path: string, accessToken: string, _isRetry = fal
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
 
   if (!res.ok) {
-    // 401 토큰 만료 시: Supabase refreshSession으로 provider_token 갱신 후 1회 재시도 (BUG-02 fix)
-    if (res.status === 401 && !_isRetry && supabase) {
-      const { data } = await supabase.auth.refreshSession().catch(() => ({ data: { session: null } }));
-      const newToken = data.session?.provider_token;
-      if (newToken && newToken !== accessToken) {
-        const userId = data.session?.user?.id;
-        if (userId) {
-          void persistSpotifyToken(userId, newToken).catch(() => {});
+    if (res.status === 401 && !_isRetry) {
+      const directToken = await refreshSpotifyDirectAccessToken(accessToken).catch(() => undefined);
+      if (directToken && directToken !== accessToken) {
+        return spotifyFetch<T>(path, directToken, true);
+      }
+
+      if (supabase) {
+        const { data } = await supabase.auth.refreshSession().catch(() => ({ data: { session: null } }));
+        const newToken = data.session?.provider_token;
+        if (newToken && newToken !== accessToken) {
+          const userId = data.session?.user?.id;
+          if (userId) {
+            void persistSpotifyToken(userId, newToken).catch(() => {});
+          }
+          return spotifyFetch<T>(path, newToken, true);
         }
-        return spotifyFetch<T>(path, newToken, true);
       }
     }
 

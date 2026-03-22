@@ -187,8 +187,13 @@ function syncActiveSourceTrackCount(
   };
 }
 
+function getRemoteSyncUserId(state: Pick<AppState, 'auth' | 'user'>) {
+  if (state.auth?.provider !== 'supabase') return undefined;
+  return state.user?.id;
+}
+
 function syncSessionState(state: AppState) {
-  const userId = state.user?.id;
+  const userId = getRemoteSyncUserId(state);
   if (!userId) return;
   void saveSessionState(userId, {
     locale: state.locale,
@@ -274,7 +279,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       activeSource: syncActiveSourceTrackCount(state.activeSource, nextSongs),
     }));
     const nextState = get();
-    const userId = nextState.user?.id;
+    const userId = getRemoteSyncUserId(nextState);
     if (!userId) return;
     void (async () => {
       // BUG-08 fix: resetFlow의 DB 삭제가 완료된 후에 새 데이터를 삽입합니다.
@@ -305,7 +310,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     };
     set(nextState);
 
-    const userId = get().user?.id;
+    const userId = getRemoteSyncUserId(get());
     if (!userId) return;
     void Promise.all([
       appendLibrary(userId, newSongs, nextState.ratings),
@@ -329,7 +334,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     }));
 
     const state = get();
-    const userId = state.user?.id;
+    const userId = getRemoteSyncUserId(state);
     const song = state.songs.find((item) => item.id === songId);
     if (!userId || !song) return;
     void saveSongAndRating(userId, song, state.ratings[songId]).catch(
@@ -373,7 +378,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
       matches: [nextMatch, ...state.matches],
     });
 
-    const userId = get().user?.id;
+    const userId = getRemoteSyncUserId(get());
     if (!userId) return;
     void insertMatch(
       userId,
@@ -385,7 +390,7 @@ export const useAppStore = create<AppState>()((set, get) => ({
     });
   },
   resetFlow: () => {
-    const userId = get().user?.id;
+    const userId = getRemoteSyncUserId(get());
     set((state) => ({
       ...getDefaultState(),
       locale: state.locale,
