@@ -30,6 +30,7 @@ interface SpotifyImage { url?: string | null }
 interface SpotifyArtist { name?: string | null }
 interface SpotifyTrack {
   id?: string | null;
+  type?: string | null;
   name?: string | null;
   preview_url?: string | null;
   duration_ms?: number | null;
@@ -46,7 +47,13 @@ interface SpotifyPlaylistItem {
   name?: string;
   description?: string | null;
   images?: SpotifyImage[] | null;
+  items?: { total?: number | null } | null;
   tracks?: { total?: number | null } | null;
+}
+interface SpotifyProfile {
+  id?: string;
+  country?: string | null;
+  product?: SpotifyProduct;
 }
 
 async function spotifyFetch<T>(path: string, accessToken: string, _isRetry = false): Promise<T> {
@@ -80,6 +87,15 @@ async function spotifyFetch<T>(path: string, accessToken: string, _isRetry = fal
   return res.json() as Promise<T>;
 }
 
+function buildSpotifyUrl(path: string, params: Record<string, string | number | undefined>) {
+  const url = new URL(path.startsWith('http') ? path : `${API_ROOT}${path}`);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === '') return;
+    url.searchParams.set(key, String(value));
+  });
+  return url.toString();
+}
+
 // ── 전체 페이지 자동 수집 ──
 async function fetchAllPages<T>(
   firstUrl: string,
@@ -97,7 +113,18 @@ async function fetchAllPages<T>(
   return results;
 }
 
+async function getSpotifyProfile(accessToken: string): Promise<SpotifyProfile> {
+  const cacheKey = `spotify-profile:${accessToken.slice(-16)}`;
+  const cached = getCached<SpotifyProfile>(cacheKey);
+  if (cached) return cached;
+
+  const profile = await spotifyFetch<SpotifyProfile>('/me', accessToken);
+  setCache(cacheKey, profile);
+  return profile;
+}
+
 function normalizeTrack(track: SpotifyTrack, playlistId: string, _index: number): Song | undefined {
+  if (track.type && track.type !== 'track') return undefined;
   if (!track.id || !track.name) return undefined;
   return {
     id: buildSongId(playlistId, track.id),
@@ -116,13 +143,13 @@ function normalizeTrack(track: SpotifyTrack, playlistId: string, _index: number)
 export async function getSpotifyProduct(accessToken?: string): Promise<SpotifyProduct> {
   if (!accessToken) return 'unknown';
   try {
-    const me = await spotifyFetch<{ product?: SpotifyProduct }>('/me', accessToken);
+    const me = await getSpotifyProfile(accessToken);
     return me.product ?? 'unknown';
   } catch { return 'unknown'; }
 }
 
-// ── 플레이리스트 목록: tracks.total은 응답에 이미 포함되어 있어
-//    별도 추가 API 호출 없이 바로 사용 ──
+// ── 플레이리스트 목록: Spotify 문서 기준으로 `items.total`을 우선 사용하고,
+//    구버전 응답 호환을 위해 `tracks.total`도 함께 폴백합니다. ──
 export async function getUserPlaylists(accessToken?: string): Promise<PlaylistSummary[]> {
   if (!accessToken) return demoPlaylists;
 
@@ -133,13 +160,16 @@ export async function getUserPlaylists(accessToken?: string): Promise<PlaylistSu
   // 좋아요 곡 수 (한 번만)
   let likedCount = 0;
   try {
-    const liked = await spotifyFetch<{ total?: number }>('/me/tracks?limit=1', accessToken);
+    const liked = await spotifyFetch<{ total?: number }>(buildSpotifyUrl('/me/tracks', { limit: 1 }), accessToken);
     likedCount = liked.total ?? 0;
   } catch {}
 
   // 내 플레이리스트 (페이지네이션 — 50개씩)
   const rawPlaylists = await fetchAllPages<SpotifyPlaylistItem>(
-    `${API_ROOT}/me/playlists?limit=50&fields=items(id,name,description,images(url),tracks(total)),next`,
+    buildSpotifyUrl('/me/playlists', {
+      limit: 50,
+      fields: 'items(id,name,description,images(url),items(total),tracks(total)),next',
+    }),
     accessToken,
   );
 
@@ -160,7 +190,7 @@ export async function getUserPlaylists(accessToken?: string): Promise<PlaylistSu
         name: p.name,
         description: p.description?.trim() || '',
         imageUrl: p.images?.[0]?.url || FALLBACK_PLAYLIST_IMAGE,
-        trackCount: p.tracks?.total ?? 0,
+        trackCount: p.items?.total ?? p.tracks?.total ?? 0,
       })),
   ];
 
@@ -178,12 +208,15 @@ export async function importPlaylistTracks(playlistId: string, accessToken?: str
   const cached = getCached<Song[]>(cacheKey);
   if (cached) return cached;
 
+  const profile = await getSpotifyProfile(accessToken).catch(() => undefined);
+  const market = profile?.country ?? 'from_token';
+
   let songs: Song[];
 
   if (playlistId === 'liked') {
     // 좋아요 곡 전용 엔드포인트
     const items = await fetchAllPages<{ track?: SpotifyTrack | null }>(
-      `${API_ROOT}/me/tracks?limit=50`,
+      buildSpotifyUrl('/me/tracks', { limit: 50, market }),
       accessToken,
     );
     songs = items
@@ -192,7 +225,11 @@ export async function importPlaylistTracks(playlistId: string, accessToken?: str
   } else {
     // 일반 플레이리스트 (전 페이지)
     const items = await fetchAllPages<{ track?: SpotifyTrack | null }>(
-      `${API_ROOT}/playlists/${playlistId}/tracks?limit=100`,
+      buildSpotifyUrl(`/playlists/${playlistId}/tracks`, {
+        limit: 100,
+        market,
+        additional_types: 'track',
+      }),
       accessToken,
     );
     songs = items
@@ -203,4 +240,3 @@ export async function importPlaylistTracks(playlistId: string, accessToken?: str
   setCache(cacheKey, songs, 10 * 60 * 1000); // 트랙은 10분 캐시
   return songs;
 }
-
