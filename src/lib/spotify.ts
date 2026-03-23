@@ -1,14 +1,12 @@
 import { demoPlaylists, demoSongs } from './sampleData';
 import { buildSongId } from './songIdentity';
-import { persistSpotifyToken, supabase } from './supabase';
+import { getValidSpotifyAccessToken } from './spotifyAuth';
 import type { PlaylistSummary, Song, SpotifyProduct } from '../types';
 
 const API_ROOT = 'https://api.spotify.com/v1';
 const FALLBACK_PLAYLIST_IMAGE = 'https://picsum.photos/seed/playlist/300/300';
 const FALLBACK_TRACK_IMAGE = 'https://picsum.photos/seed/track/300/300';
-
-// ── 캐시: sessionStorage 기반 (새로고침 후에도 탭 세션 내 유지) ──
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5분
+const CACHE_TTL_MS = 5 * 60 * 1000;
 const inFlightRequests = new Map<string, Promise<unknown>>();
 
 function getCached<T>(key: string): T | undefined {
@@ -16,15 +14,22 @@ function getCached<T>(key: string): T | undefined {
     const raw = sessionStorage.getItem(key);
     if (!raw) return undefined;
     const { data, expires } = JSON.parse(raw) as { data: T; expires: number };
-    if (Date.now() > expires) { sessionStorage.removeItem(key); return undefined; }
+    if (Date.now() > expires) {
+      sessionStorage.removeItem(key);
+      return undefined;
+    }
     return data;
-  } catch { return undefined; }
+  } catch {
+    return undefined;
+  }
 }
 
 function setCache<T>(key: string, data: T, ttlMs = CACHE_TTL_MS) {
   try {
     sessionStorage.setItem(key, JSON.stringify({ data, expires: Date.now() + ttlMs }));
-  } catch {}
+  } catch {
+    // noop
+  }
 }
 
 interface SpotifyImage { url?: string | null }
@@ -57,23 +62,18 @@ interface SpotifyProfile {
   product?: SpotifyProduct;
 }
 
-async function spotifyFetch<T>(path: string, accessToken: string, _isRetry = false): Promise<T> {
+async function spotifyFetch<T>(path: string, accessToken?: string, isRetry = false): Promise<T> {
+  const token = await getValidSpotifyAccessToken(accessToken);
+  if (!token) {
+    throw new Error('Spotify 세션이 없어요. 다시 로그인해주세요.');
+  }
+
   const url = path.startsWith('http') ? path : `${API_ROOT}${path}`;
-  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
 
   if (!res.ok) {
-    if (res.status === 401 && !_isRetry) {
-      if (supabase) {
-        const { data } = await supabase.auth.refreshSession().catch(() => ({ data: { session: null } }));
-        const newToken = data.session?.provider_token;
-        if (newToken && newToken !== accessToken) {
-          const userId = data.session?.user?.id;
-          if (userId) {
-            void persistSpotifyToken(userId, newToken).catch(() => {});
-          }
-          return spotifyFetch<T>(path, newToken, true);
-        }
-      }
+    if (res.status === 401 && !isRetry) {
+      return spotifyFetch<T>(path, undefined, true);
     }
 
     const retryAfter = res.headers.get('Retry-After');
@@ -97,8 +97,6 @@ function buildSpotifyUrl(path: string, params: Record<string, string | number | 
   return url.toString();
 }
 
-// ── 전체 페이지 자동 수집 ──
-
 function dedupeRequest<T>(key: string, loader: () => Promise<T>): Promise<T> {
   const existing = inFlightRequests.get(key);
   if (existing) {
@@ -116,10 +114,7 @@ function isBadRequestError(error: unknown) {
   return error instanceof Error && error.message.includes('(400)');
 }
 
-async function fetchAllPages<T>(
-  firstUrl: string,
-  accessToken: string,
-): Promise<T[]> {
+async function fetchAllPages<T>(firstUrl: string, accessToken?: string): Promise<T[]> {
   const results: T[] = [];
   let url: string | null = firstUrl;
 
@@ -144,7 +139,7 @@ async function getSpotifyProfile(accessToken: string): Promise<SpotifyProfile> {
   });
 }
 
-function normalizeTrack(track: SpotifyTrack, playlistId: string, _index: number): Song | undefined {
+function normalizeTrack(track: SpotifyTrack, playlistId: string): Song | undefined {
   if (track.type && track.type !== 'track') return undefined;
   if (!track.id || !track.name) return undefined;
   return {
@@ -166,11 +161,11 @@ export async function getSpotifyProduct(accessToken?: string): Promise<SpotifyPr
   try {
     const me = await getSpotifyProfile(accessToken);
     return me.product ?? 'unknown';
-  } catch { return 'unknown'; }
+  } catch {
+    return 'unknown';
+  }
 }
 
-// ── 플레이리스트 목록: Spotify 문서 기준으로 `items.total`을 우선 사용하고,
-//    구버전 응답 호환을 위해 `tracks.total`도 함께 폴백합니다. ──
 export async function getUserPlaylists(
   accessToken?: string,
   options?: { forceRefresh?: boolean },
@@ -182,12 +177,13 @@ export async function getUserPlaylists(
   if (cached) return cached;
 
   return dedupeRequest(cacheKey, async () => {
-    // 좋아요 곡 수 (한 번만)
     let likedCount = 0;
     try {
       const liked = await spotifyFetch<{ total?: number }>(buildSpotifyUrl('/me/tracks', { limit: 1 }), accessToken);
       likedCount = liked.total ?? 0;
-    } catch {}
+    } catch {
+      // noop
+    }
 
     const playlistListUrl = buildSpotifyUrl('/me/playlists', {
       limit: 50,
@@ -198,16 +194,11 @@ export async function getUserPlaylists(
     try {
       rawPlaylists = await fetchAllPages<SpotifyPlaylistItem>(playlistListUrl, accessToken);
     } catch (error) {
-      // fields 최적화가 특정 계정/응답 형태에서 400을 내면 기본 응답으로 즉시 폴백합니다.
       if (!isBadRequestError(error)) throw error;
-      rawPlaylists = await fetchAllPages<SpotifyPlaylistItem>(
-        buildSpotifyUrl('/me/playlists', { limit: 50 }),
-        accessToken,
-      );
+      rawPlaylists = await fetchAllPages<SpotifyPlaylistItem>(buildSpotifyUrl('/me/playlists', { limit: 50 }), accessToken);
     }
 
     const playlists: PlaylistSummary[] = [
-      // 좋아요 곡을 맨 앞에 고정
       {
         id: 'liked',
         name: '좋아요 표시한 노래',
@@ -232,7 +223,6 @@ export async function getUserPlaylists(
   });
 }
 
-// ── 트랙 임포트: 좋아요 곡과 일반 플레이리스트 분기 + 전 페이지 수집 ──
 export async function importPlaylistTracks(playlistId: string, accessToken?: string): Promise<Song[]> {
   if (!accessToken) {
     return demoSongs.filter((s) => s.playlistId === playlistId || playlistId.startsWith('demo-'));
@@ -244,8 +234,6 @@ export async function importPlaylistTracks(playlistId: string, accessToken?: str
 
   return dedupeRequest(cacheKey, async () => {
     const profile = await getSpotifyProfile(accessToken).catch(() => undefined);
-    // Saved Tracks / Playlist Items 문서는 ISO 시장 코드 사용을 전제로 하므로
-    // 프로필 국가를 못 받았을 때는 market 파라미터 자체를 생략합니다.
     const market = profile?.country ?? undefined;
 
     const fetchTrackPages = async (urlWithMarket: string, urlWithoutMarket: string) => {
@@ -265,8 +253,8 @@ export async function importPlaylistTracks(playlistId: string, accessToken?: str
         buildSpotifyUrl('/me/tracks', { limit: 50 }),
       );
       songs = items
-        .map((item, i) => item.track ? normalizeTrack(item.track, 'liked', i) : undefined)
-        .filter((s): s is Song => Boolean(s));
+        .map((item) => item.track ? normalizeTrack(item.track, 'liked') : undefined)
+        .filter((song): song is Song => Boolean(song));
     } else {
       const items = await fetchTrackPages(
         buildSpotifyUrl(`/playlists/${playlistId}/tracks`, {
@@ -280,8 +268,8 @@ export async function importPlaylistTracks(playlistId: string, accessToken?: str
         }),
       );
       songs = items
-        .map((item, i) => item.track ? normalizeTrack(item.track, playlistId, i) : undefined)
-        .filter((s): s is Song => Boolean(s));
+        .map((item) => item.track ? normalizeTrack(item.track, playlistId) : undefined)
+        .filter((song): song is Song => Boolean(song));
     }
 
     setCache(cacheKey, songs, 10 * 60 * 1000);

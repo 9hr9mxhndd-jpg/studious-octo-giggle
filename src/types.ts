@@ -12,7 +12,6 @@ export interface PlaylistSummary {
   name: string;
   description: string;
   imageUrl: string;
-  // Spotify 원본 플레이리스트/좋아요 곡 총 개수입니다.
   trackCount: number;
   isLikedSongs?: boolean;
 }
@@ -58,15 +57,20 @@ export interface Matchup {
 
 export interface UserProfile {
   id: string;
+  spotifyUserId: string;
   email?: string;
+  displayName?: string;
+  imageUrl?: string;
   spotifyProduct: SpotifyProduct;
   isPremium: boolean;
 }
 
 export interface AuthSnapshot {
-  provider: 'supabase';
+  provider: 'spotify';
   accessToken?: string;
   refreshToken?: string;
+  expiresAt?: number;
+  syncUserId?: string;
 }
 
 export type AppLocale = Locale;

@@ -18,7 +18,7 @@ const translations = {
       signOut: 'Sign out',
     },
     landing: {
-      badge: 'Spotify playlist ranking via Supabase + Elo',
+      badge: 'Spotify playlist ranking via PKCE + Elo',
       title: 'Turn playlist indecision into a living preference ladder.',
       description:
         'Playlist Ladder combines fast bucket sorting with adaptive Elo battles, using Spotify playback that changes based on whether the listener is premium or free.',
@@ -26,14 +26,14 @@ const translations = {
       reconnect: 'Reconnect Spotify',
       demo: 'Continue in demo mode',
       loginHelp:
-        'If Spotify login is denied on a preview deployment, add that preview URL to the Supabase allowed redirect URLs and set VITE_SUPABASE_REDIRECT_TO for the deployment. Keep the Spotify provider Redirect URI pointed at your Supabase callback URL.',
+        'If Spotify login is denied on a preview deployment, add that exact preview callback URL to Spotify Redirect URIs and set VITE_SPOTIFY_REDIRECT_TO to the same origin.',
       importedSongs: 'imported songs',
       completedBattles: 'completed battles',
       rls: 'RLS-ready Supabase schema included',
       phases: [
         {
           title: '1. Import playlist',
-          description: 'Authenticate with Spotify, select a playlist, and sync every track into Supabase-backed tables.',
+          description: 'Authenticate with Spotify, select a playlist, and load every track into the app state. Optional Supabase anonymous sync can persist the same data remotely.',
         },
         {
           title: '2. Bucket by intuition',
@@ -54,7 +54,7 @@ const translations = {
     playlist: {
       title: 'Select a playlist',
       description:
-        'Pull a Spotify playlist into the local app state, then persist to Supabase tables in your connected deployment. Demo mode uses seeded playlists when no access token is present.',
+        'Pull a Spotify playlist into the local app state, then optionally persist it through Supabase anonymous sync when configured. Demo mode uses seeded playlists when no access token is present.',
       importTracks: 'Import tracks',
       importing: 'Importing…',
       selectError: 'Choose a playlist before importing tracks.',
@@ -68,7 +68,7 @@ const translations = {
       none: 'none',
       loginDeniedTitle: 'Preview login help',
       loginDeniedBody:
-        'Spotify OAuth can be denied on preview URLs unless the preview domain is listed in Supabase Auth redirect URLs. Set VITE_SUPABASE_REDIRECT_TO to the allowed preview URL if needed, and keep the Spotify provider Redirect URI set to Supabase callback URL instead of the preview app URL.',
+        'Spotify OAuth can be denied on preview URLs unless the exact preview callback URL is listed in Spotify Redirect URIs. Set VITE_SPOTIFY_REDIRECT_TO to the allowed preview origin if needed.',
       cardSelected: 'Selected for import',
       cardIdle: 'Choose this playlist',
       trackCount: 'tracks',
@@ -161,7 +161,7 @@ const translations = {
       signOut: '로그아웃',
     },
     landing: {
-      badge: 'Supabase + Elo 기반 Spotify 플레이리스트 랭킹',
+      badge: 'PKCE + Elo 기반 Spotify 플레이리스트 랭킹',
       title: '망설여지는 플레이리스트를 살아있는 선호도 래더로 바꾸세요.',
       description:
         'Playlist Ladder는 빠른 버킷 분류와 적응형 Elo 대결을 결합하고, Spotify Premium 여부에 따라 재생 방식이 달라집니다.',
@@ -169,14 +169,14 @@ const translations = {
       reconnect: 'Spotify 다시 연결',
       demo: '데모 모드로 계속',
       loginHelp:
-        '프리뷰 배포에서 Spotify 로그인이 거부되면 해당 프리뷰 URL을 Supabase 허용 리디렉션 URL에 추가하고 배포 환경에 VITE_SUPABASE_REDIRECT_TO를 설정하세요. Spotify 공급자의 Redirect URI는 계속 Supabase 콜백 URL을 가리켜야 합니다.',
+        '프리뷰 배포에서 Spotify 로그인이 거부되면 해당 프리뷰 콜백 URL을 Spotify Redirect URI에 추가하고 VITE_SPOTIFY_REDIRECT_TO를 같은 origin으로 설정하세요.',
       importedSongs: '가져온 곡',
       completedBattles: '완료된 대결',
       rls: 'RLS 적용 Supabase 스키마 포함',
       phases: [
         {
           title: '1. 플레이리스트 가져오기',
-          description: 'Spotify로 인증하고 플레이리스트를 선택한 뒤 모든 곡을 Supabase 테이블로 동기화합니다.',
+          description: 'Spotify로 인증하고 플레이리스트를 선택한 뒤 모든 곡을 앱 상태로 불러옵니다. 설정돼 있으면 Supabase 익명 동기화도 함께 사용합니다.',
         },
         {
           title: '2. 직감으로 버킷 분류',
@@ -197,7 +197,7 @@ const translations = {
     playlist: {
       title: '플레이리스트 선택',
       description:
-        'Spotify 플레이리스트를 앱 상태로 가져온 뒤 Supabase 테이블에 저장할 수 있습니다. 액세스 토큰이 없으면 데모 플레이리스트를 사용합니다.',
+        'Spotify 플레이리스트를 앱 상태로 가져온 뒤, 설정돼 있으면 Supabase 익명 세션으로 원격 저장할 수 있습니다. 액세스 토큰이 없으면 데모 플레이리스트를 사용합니다.',
       importTracks: '곡 가져오기',
       importing: '가져오는 중…',
       selectError: '곡을 가져오기 전에 플레이리스트를 선택하세요.',
@@ -211,7 +211,7 @@ const translations = {
       none: '없음',
       loginDeniedTitle: '프리뷰 로그인 안내',
       loginDeniedBody:
-        '프리뷰 URL에서 Spotify OAuth가 거부될 수 있습니다. Supabase Auth 허용 리디렉션 URL에 프리뷰 도메인을 추가하고, 필요하면 VITE_SUPABASE_REDIRECT_TO를 설정하세요. Spotify 공급자의 Redirect URI는 프리뷰 앱 URL이 아니라 Supabase 콜백 URL이어야 합니다.',
+        '프리뷰 URL에서 Spotify OAuth가 거부될 수 있습니다. Spotify Redirect URI에 해당 프리뷰 콜백 URL을 추가하고, 필요하면 VITE_SPOTIFY_REDIRECT_TO를 그 origin으로 설정하세요.',
       cardSelected: '가져올 대상으로 선택됨',
       cardIdle: '이 플레이리스트 선택',
       trackCount: '곡',

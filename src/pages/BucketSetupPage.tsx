@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { signInWithSpotify } from '../lib/supabase';
+import { getSpotifyTrackOpenUrl } from '../lib/spotifyAuth';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
 import { useSongPlayback } from '../hooks/useSongPlayback';
@@ -11,7 +11,7 @@ export function BucketSetupPage() {
   const assignTier = useAppStore((s) => s.assignTier);
   const user = useAppStore((s) => s.user);
   const [history, setHistory] = useState<Array<{ id: string; prevTier?: Tier; prevUncertain: boolean }>>([]);
-  const { ready, error: playerError, requiresRelogin, playSong, stopPlayback, isSongPlaying, canPlaySong } = useSongPlayback({
+  const { ready, error: playerError, requiresRelogin, playSong, stopPlayback, isSongPlaying, canPlaySong, relogin } = useSongPlayback({
     isPremium: Boolean(user?.isPremium),
   });
 
@@ -112,7 +112,7 @@ export function BucketSetupPage() {
             <div className="flex-1 min-w-0">
               <p className="truncate text-sm font-medium text-warm-800">{current.title}</p>
               <p className="truncate text-xs text-warm-400">{current.artist}</p>
-              <div className="mt-2 flex items-center gap-2">
+              <div className="mt-2 flex flex-wrap items-center gap-2">
                 {/* 재생 버튼 */}
                 <button
                   type="button"
@@ -144,6 +144,15 @@ export function BucketSetupPage() {
                     </>
                   )}
                 </button>
+
+                <a
+                  href={getSpotifyTrackOpenUrl(current.spotifyTrackId)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-full border border-warm-200 px-3 py-1 text-[11px] text-warm-500 transition hover:border-warm-300 hover:text-warm-700"
+                >
+                  Spotify에서 전곡 열기
+                </a>
 
                 <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-warm-400">
                   <input
@@ -180,7 +189,7 @@ export function BucketSetupPage() {
             <button
               type="button"
               onClick={() => {
-                void signInWithSpotify();
+                void relogin();
               }}
               className="rounded-full border border-warm-200 px-2.5 py-1 text-[10px] font-medium text-warm-600 hover:border-warm-300 hover:text-warm-800"
             >

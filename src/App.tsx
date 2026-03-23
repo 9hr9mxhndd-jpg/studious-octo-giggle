@@ -1,42 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Session } from '@supabase/supabase-js';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AppShell } from './components/AppShell';
 import { loadUserAppState, subscribeToUserAppState } from './lib/appSync';
-import { getSpotifyProduct } from './lib/spotify';
-import { clearSpotifyToken, loadSpotifyToken, persistSpotifyToken, profileFromSession, saveSpotifyToken, sessionToAuthSnapshot, supabase } from './lib/supabase';
+import { buildUserProfile, clearSpotifySession, getAuthCallbackErrorMessage, getValidSpotifySession } from './lib/spotifyAuth';
+import { ensureSupabaseAppSession, persistSpotifyToken } from './lib/supabase';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { BucketSetupPage } from './pages/BucketSetupPage';
 import { LandingPage } from './pages/LandingPage';
 import { MatchPage } from './pages/MatchPage';
 import { RankingPage } from './pages/RankingPage';
 import { useAppStore } from './store/appStore';
-import type { SpotifyProduct, UserProfile } from './types';
 
 function RequireSource({ children }: { children: React.ReactNode }) {
   const activeSource = useAppStore((s) => s.activeSource);
   if (!activeSource) return <Navigate to="/" replace />;
   return <>{children}</>;
-}
-
-function resolveSpotifyProduct(nextProduct: SpotifyProduct, previousUser?: UserProfile) {
-  if (nextProduct !== 'unknown') return nextProduct;
-  return previousUser?.spotifyProduct ?? 'unknown';
-}
-
-function applySpotifyProduct(
-  user: UserProfile | undefined,
-  spotifyProduct: SpotifyProduct,
-  previousUser?: UserProfile,
-) {
-  if (!user) return undefined;
-
-  const resolvedProduct = resolveSpotifyProduct(spotifyProduct, previousUser ?? user);
-  return {
-    ...user,
-    spotifyProduct: resolvedProduct,
-    isPremium: resolvedProduct === 'premium',
-  };
 }
 
 function hasAuthCallbackError(search: string, hash: string) {
@@ -50,10 +28,6 @@ function hasAuthCallbackError(search: string, hash: string) {
   );
 }
 
-function selectPreferredSpotifyToken(...tokens: Array<string | undefined>) {
-  return tokens.find((token) => Boolean(token));
-}
-
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -65,60 +39,44 @@ export default function App() {
   const setHydrated = useAppStore((s) => s.setHydrated);
   const replaceRemoteState = useAppStore((s) => s.replaceRemoteState);
   const clearSyncedState = useAppStore((s) => s.clearSyncedState);
-  const [sessionResolved, setSessionResolved] = useState(!supabase);
+  const [sessionResolved, setSessionResolved] = useState(false);
   const isAuthCallback = location.pathname === '/auth/callback';
   const callbackHasError = hasAuthCallbackError(location.search, location.hash);
   const resolveGenRef = useRef(0);
 
   useEffect(() => {
-    const client = supabase;
     let cancelled = false;
 
-    const syncSession = async (session: Session | null, gen: number) => {
-      if (!session) {
-        if (!cancelled && gen === resolveGenRef.current) {
-          setAuth(undefined);
-          setUser(undefined);
-        }
-        return;
-      }
-
-      try {
-        const nextAuth = await sessionToAuthSnapshot(session);
-        const product = await getSpotifyProduct(nextAuth?.accessToken).catch(() => 'unknown' as const);
-        if (!cancelled && gen === resolveGenRef.current) {
-          setAuth(nextAuth);
-          const currentUser = useAppStore.getState().user;
-          setUser(applySpotifyProduct(
-            profileFromSession(session, product),
-            product,
-            currentUser,
-          ));
-        }
-      } catch {
-        if (!cancelled && gen === resolveGenRef.current) {
-          setAuth(undefined);
-          setUser(undefined);
-        }
-      }
-    };
-
-    const resolveSession = async (sessionOverride?: Session | null) => {
+    const resolveSession = async () => {
       const gen = ++resolveGenRef.current;
       setSessionResolved(false);
+
       try {
-        if (!client) {
-          if (!cancelled && gen === resolveGenRef.current) {
-            setAuth(undefined);
-            setUser(undefined);
-          }
+        const syncUserId = await ensureSupabaseAppSession().catch(() => undefined);
+        const resolved = await buildUserProfile(syncUserId);
+        const session = await getValidSpotifySession().catch(() => undefined);
+
+        if (cancelled || gen !== resolveGenRef.current) return;
+
+        if (!resolved || !session) {
+          clearSpotifySession();
+          setAuth(undefined);
+          setUser(undefined);
           return;
         }
 
-        const session = sessionOverride ?? (await client.auth.getSession()).data.session;
-        await syncSession(session, gen);
-      } catch {
+        setAuth(resolved.auth);
+        setUser(resolved.user);
+
+        if (resolved.auth.syncUserId && session.accessToken) {
+          void persistSpotifyToken(resolved.auth.syncUserId, session.accessToken).catch((error) => {
+            console.error('Failed to persist Spotify token.', error);
+          });
+        }
+      } catch (error) {
+        console.error('Failed to resolve Spotify session.', error);
         if (!cancelled && gen === resolveGenRef.current) {
+          clearSpotifySession();
           setAuth(undefined);
           setUser(undefined);
         }
@@ -131,81 +89,49 @@ export default function App() {
 
     void resolveSession();
 
-    if (!client) {
-      return () => {
-        cancelled = true;
-      };
-    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void resolveSession();
+      }
+    };
 
-    const { data: { subscription } } = client.auth.onAuthStateChange((_event, session) => {
-      void resolveSession(session);
-    });
-
+    window.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       cancelled = true;
-      subscription.unsubscribe();
+      window.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [setAuth, setUser]);
 
   useEffect(() => {
     if (!sessionResolved) return;
 
-    const remoteSyncEnabled = Boolean(auth?.provider && user?.id);
+    const remoteUserId = auth?.syncUserId;
 
-    if (!remoteSyncEnabled || !user) {
-      if (!user?.id) {
-        clearSpotifyToken();
-        clearSyncedState();
-      }
+    if (!auth || !user) {
+      clearSyncedState();
       setHydrated(true);
-      if (isAuthCallback && !callbackHasError) {
+      if (isAuthCallback && !callbackHasError && !getAuthCallbackErrorMessage()) {
         navigate('/', { replace: true });
       }
       return;
     }
 
+    if (!remoteUserId) {
+      setHydrated(true);
+      return;
+    }
+
     let cancelled = false;
-    const remoteUserId = user.id;
     setHydrated(false);
-
-    const updateUserAuthFromPreferredToken = async (nextToken?: string) => {
-      if (!nextToken) return;
-
-      saveSpotifyToken(nextToken);
-
-      const currentAuth = useAppStore.getState().auth;
-      setAuth(currentAuth
-        ? { ...currentAuth, accessToken: nextToken }
-        : { provider: 'supabase', accessToken: nextToken, refreshToken: undefined });
-
-      const product = await getSpotifyProduct(nextToken).catch(() => 'unknown' as const);
-      if (cancelled) return;
-
-      const currentUser = useAppStore.getState().user;
-      if (currentUser?.id !== user?.id) return;
-
-      setUser(applySpotifyProduct(currentUser, product, currentUser));
-    };
 
     const reload = async (completeHydration: boolean) => {
       try {
         const remoteState = await loadUserAppState(remoteUserId);
         if (cancelled) return;
-
         replaceRemoteState(remoteState);
 
-        const currentAccessToken = useAppStore.getState().auth?.accessToken;
-        const localToken = loadSpotifyToken();
-        const preferredToken = selectPreferredSpotifyToken(
-          currentAccessToken,
-          localToken,
-          remoteState.spotifyProviderToken,
-        );
-
-        await updateUserAuthFromPreferredToken(preferredToken);
-
-        if (preferredToken && remoteState.spotifyProviderToken !== preferredToken) {
-          void persistSpotifyToken(remoteUserId, preferredToken).catch((error) => {
+        if (auth.accessToken && remoteState.spotifyProviderToken !== auth.accessToken) {
+          void persistSpotifyToken(remoteUserId, auth.accessToken).catch((error) => {
             console.error('Failed to persist refreshed Spotify token.', error);
           });
         }
@@ -230,7 +156,7 @@ export default function App() {
       cancelled = true;
       unsubscribe();
     };
-  }, [auth?.provider, callbackHasError, clearSyncedState, isAuthCallback, navigate, replaceRemoteState, sessionResolved, setAuth, setHydrated, setUser, user?.id]);
+  }, [auth, callbackHasError, clearSyncedState, isAuthCallback, navigate, replaceRemoteState, sessionResolved, setHydrated, user]);
 
   if (!hydrated) {
     return (

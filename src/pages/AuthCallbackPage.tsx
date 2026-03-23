@@ -1,13 +1,38 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  exchangeCodeForSessionIfPresent,
+  exchangeCodeForSpotifySession,
   getAuthCallbackErrorCode,
   getAuthCallbackErrorMessage,
-  getSpotifyLoginTroubleshooting,
   signInWithSpotify,
-  supabase,
-} from '../lib/supabase';
+} from '../lib/spotifyAuth';
+
+function getSpotifyLoginTroubleshooting(errorMessage?: string, errorCode?: string) {
+  if (!errorMessage) return undefined;
+
+  const normalizedMessage = errorMessage.toLowerCase();
+  const normalizedCode = errorCode?.toLowerCase();
+  const isProviderConfigFailure =
+    normalizedMessage.includes('redirect') ||
+    normalizedMessage.includes('code verifier') ||
+    normalizedMessage.includes('code challenge') ||
+    normalizedMessage.includes('state') ||
+    normalizedCode === 'invalid_client';
+
+  if (!isProviderConfigFailure) {
+    return undefined;
+  }
+
+  return {
+    title: 'Spotify PKCE 설정을 다시 확인해주세요.',
+    items: [
+      'Spotify Developer Dashboard Redirect URI에 현재 앱의 /auth/callback URL이 정확히 등록되어 있어야 합니다.',
+      'VITE_SPOTIFY_CLIENT_ID가 현재 Spotify 앱의 Client ID와 정확히 일치해야 합니다.',
+      '브라우저 로컬스토리지의 이전 PKCE state/code_verifier가 꼬였을 수 있으니 새 로그인으로 다시 시도해주세요.',
+      'Spotify 앱이 Development Mode라면 현재 테스트 계정이 User Management에 등록되어 있어야 합니다.',
+    ],
+  };
+}
 
 export function AuthCallbackPage() {
   const navigate = useNavigate();
@@ -22,14 +47,7 @@ export function AuthCallbackPage() {
     let cancelled = false;
 
     const resolveCallback = async () => {
-      if (!supabase) {
-        if (!cancelled) {
-          setErrorMessage('Supabase 환경변수가 설정되지 않았어요.');
-        }
-        return;
-      }
-
-      const { errorMessage: nextErrorMessage } = await exchangeCodeForSessionIfPresent();
+      const { errorMessage: nextErrorMessage } = await exchangeCodeForSpotifySession();
       if (cancelled) return;
 
       if (nextErrorMessage) {
@@ -99,7 +117,7 @@ export function AuthCallbackPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-warm-50">
       <div className="h-5 w-5 animate-spin rounded-full border-2 border-warm-300 border-t-warm-700" />
-      <p className="text-sm text-warm-400">Spotify 로그인 코드를 Supabase 세션으로 교환하는 중…</p>
+      <p className="text-sm text-warm-400">Spotify 로그인 코드를 PKCE 세션으로 교환하는 중…</p>
     </div>
   );
 }
