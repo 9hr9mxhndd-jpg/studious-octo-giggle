@@ -5,6 +5,7 @@ import {
   pausePlayback,
   playTrack,
   transferPlayback,
+  type SpotifyDevice,
   type SpotifyPlayer,
 } from '../lib/spotifyPlayer';
 import { useAppStore } from '../store/appStore';
@@ -25,7 +26,9 @@ const INITIAL_PLAYER_STATE: PlayerState = {
   error: null,
 };
 
-const RETRY_WAIT_MS = 350;
+const DEVICE_RETRY_WAIT_MS = 450;
+const DEVICE_POLL_ATTEMPTS = 8;
+const PLAYBACK_RETRY_ATTEMPTS = 3;
 
 function wait(ms: number) {
   return new Promise((resolve) => {
@@ -54,7 +57,7 @@ export function useSpotifyPlayer() {
     let cancelled = false;
     setState(INITIAL_PLAYER_STATE);
 
-    loadSdk().then(() => {
+    loadSdk().then(async () => {
       if (cancelled) return;
 
       const player = new window.Spotify.Player({
@@ -83,6 +86,7 @@ export function useSpotifyPlayer() {
           ...s,
           playing: !ps.paused,
           currentTrackId: ps.track_window?.current_track?.id ?? null,
+          error: null,
         }));
       });
 
@@ -95,20 +99,38 @@ export function useSpotifyPlayer() {
         }
       });
 
+      player.addListener('playback_error', (data: unknown) => {
+        const { message } = data as { message?: string };
+        if (!cancelled && message) {
+          setState((s) => ({ ...s, error: message }));
+        }
+      });
+
       player.addListener('initialization_error', (data: unknown) => {
         const { message } = data as { message: string };
         if (!cancelled) setState((s) => ({ ...s, error: message }));
       });
 
-      player.addListener('authentication_error', () => {
-        if (!cancelled) setState((s) => ({ ...s, error: '재생 인증 실패. 재로그인 해주세요.' }));
+      player.addListener('authentication_error', (data: unknown) => {
+        const { message } = data as { message?: string };
+        if (!cancelled) {
+          setState((s) => ({
+            ...s,
+            error: message?.includes('scope')
+              ? 'Spotify 재생 권한 범위(scope)가 부족해요. Spotify 다시 로그인 후 다시 시도해주세요.'
+              : '재생 인증 실패. 재로그인 해주세요.',
+          }));
+        }
       });
 
       player.addListener('account_error', () => {
         if (!cancelled) setState((s) => ({ ...s, error: 'Spotify Premium이 필요해요.' }));
       });
 
-      player.connect();
+      const connected = await player.connect().catch(() => false);
+      if (!cancelled && !connected) {
+        setState((s) => ({ ...s, error: 'Spotify Web Player 연결에 실패했어요.' }));
+      }
       playerRef.current = player;
     });
 
@@ -126,25 +148,53 @@ export function useSpotifyPlayer() {
     activatedRef.current = true;
   }
 
+  async function findDevice(
+    token: string,
+    deviceId: string,
+    predicate: (device: SpotifyDevice) => boolean,
+  ) {
+    for (let attempt = 0; attempt < DEVICE_POLL_ATTEMPTS; attempt += 1) {
+      const devices = await getAvailableDevices(token);
+      const targetDevice = devices.find((device) => device.id === deviceId && !device.is_restricted);
+      if (targetDevice && predicate(targetDevice)) {
+        return targetDevice;
+      }
+
+      await playerRef.current?.connect().catch(() => false);
+      await wait(DEVICE_RETRY_WAIT_MS);
+    }
+
+    return undefined;
+  }
+
   async function ensurePlaybackDevice(token: string, deviceId: string) {
     await activatePlayerElement();
 
-    let devices = await getAvailableDevices(token);
-    let targetDevice = devices.find((device) => device.id === deviceId && !device.is_restricted);
-
-    if (!targetDevice) {
-      await playerRef.current?.connect().catch(() => false);
-      await wait(RETRY_WAIT_MS);
-      devices = await getAvailableDevices(token);
-      targetDevice = devices.find((device) => device.id === deviceId && !device.is_restricted);
-    }
-
-    if (!targetDevice) {
+    const availableDevice = await findDevice(token, deviceId, () => true);
+    if (!availableDevice) {
       throw new Error('재생 실패 (404): {"error":{"status":404,"message":"Device not found"}}');
     }
 
-    await transferPlayback(deviceId, token, false);
-    await wait(RETRY_WAIT_MS);
+    if (!availableDevice.is_active) {
+      await transferPlayback(deviceId, token, true);
+    }
+
+    const activeDevice = await findDevice(token, deviceId, (device) => device.is_active);
+    if (!activeDevice) {
+      throw new Error('Spotify Web Player 장치를 활성화하지 못했어요. 잠시 후 다시 시도해주세요.');
+    }
+  }
+
+  async function pauseCurrent() {
+    if (!accessToken) return;
+
+    try {
+      await pausePlayback(accessToken);
+      setState((s) => ({ ...s, playing: false }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '일시정지 오류';
+      setState((s) => ({ ...s, error: message }));
+    }
   }
 
   async function togglePlay(spotifyTrackId: string) {
@@ -153,29 +203,34 @@ export function useSpotifyPlayer() {
     if (!token || !deviceId) return;
 
     try {
+      await activatePlayerElement();
+
       if (state.playing && state.currentTrackId === spotifyTrackId) {
-        await pausePlayback(token);
+        await pauseCurrent();
         return;
       }
 
       await ensurePlaybackDevice(token, deviceId);
 
-      try {
-        await playTrack(spotifyTrackId, deviceId, token);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : '재생 오류';
-        if (!message.includes('404')) {
-          throw error;
+      let lastError: unknown;
+      for (let attempt = 0; attempt < PLAYBACK_RETRY_ATTEMPTS; attempt += 1) {
+        try {
+          await playTrack(spotifyTrackId, deviceId, token);
+          setState((s) => ({ ...s, error: null }));
+          return;
+        } catch (error) {
+          lastError = error;
+          await ensurePlaybackDevice(token, deviceId);
+          await wait(DEVICE_RETRY_WAIT_MS);
         }
-
-        await ensurePlaybackDevice(token, deviceId);
-        await playTrack(spotifyTrackId, deviceId, token);
       }
+
+      throw lastError ?? new Error('재생 오류');
     } catch (error) {
       const message = error instanceof Error ? error.message : '재생 오류';
       setState((s) => ({
         ...s,
-        error: message.includes('Permissions missing')
+        error: message.includes('Permissions missing') || message.includes('scope')
           ? 'Spotify 재생 권한이 부족해요. Spotify 다시 로그인 후 다시 시도해주세요.'
           : message.includes('Device not found')
             ? 'Spotify Web Player 장치를 찾지 못했어요. 모바일에서는 재생 버튼을 한 번 더 누르거나, Spotify 앱에서 재생 대상을 “Sorter Web Player”로 전환해 주세요.'
@@ -184,5 +239,5 @@ export function useSpotifyPlayer() {
     }
   }
 
-  return { ...state, togglePlay };
+  return { ...state, togglePlay, pauseCurrent };
 }
