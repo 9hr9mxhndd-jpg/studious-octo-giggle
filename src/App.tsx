@@ -4,7 +4,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-
 import { AppShell } from './components/AppShell';
 import { loadUserAppState, subscribeToUserAppState } from './lib/appSync';
 import { getSpotifyProduct } from './lib/spotify';
-import { clearSpotifyToken, loadSpotifyToken, profileFromSession, saveSpotifyToken, sessionToAuthSnapshot, supabase } from './lib/supabase';
+import { clearSpotifyToken, loadSpotifyToken, persistSpotifyToken, profileFromSession, saveSpotifyToken, sessionToAuthSnapshot, supabase } from './lib/supabase';
 import { AuthCallbackPage } from './pages/AuthCallbackPage';
 import { BucketSetupPage } from './pages/BucketSetupPage';
 import { LandingPage } from './pages/LandingPage';
@@ -48,6 +48,10 @@ function hasAuthCallbackError(search: string, hash: string) {
     hashParams.get('error_description') ??
     hashParams.get('error'),
   );
+}
+
+function selectPreferredSpotifyToken(...tokens: Array<string | undefined>) {
+  return tokens.find((token) => Boolean(token));
 }
 
 export default function App() {
@@ -164,17 +168,17 @@ export default function App() {
     const remoteUserId = user.id;
     setHydrated(false);
 
-    const updateUserAuthFromRemoteToken = async (remoteToken?: string) => {
-      if (!remoteToken) return;
+    const updateUserAuthFromPreferredToken = async (nextToken?: string) => {
+      if (!nextToken) return;
 
-      saveSpotifyToken(remoteToken);
+      saveSpotifyToken(nextToken);
 
       const currentAuth = useAppStore.getState().auth;
       setAuth(currentAuth
-        ? { ...currentAuth, accessToken: remoteToken }
-        : { provider: 'supabase', accessToken: remoteToken, refreshToken: undefined });
+        ? { ...currentAuth, accessToken: nextToken }
+        : { provider: 'supabase', accessToken: nextToken, refreshToken: undefined });
 
-      const product = await getSpotifyProduct(remoteToken).catch(() => 'unknown' as const);
+      const product = await getSpotifyProduct(nextToken).catch(() => 'unknown' as const);
       if (cancelled) return;
 
       const currentUser = useAppStore.getState().user;
@@ -189,7 +193,22 @@ export default function App() {
         if (cancelled) return;
 
         replaceRemoteState(remoteState);
-        await updateUserAuthFromRemoteToken(remoteState.spotifyProviderToken ?? loadSpotifyToken());
+
+        const currentAccessToken = useAppStore.getState().auth?.accessToken;
+        const localToken = loadSpotifyToken();
+        const preferredToken = selectPreferredSpotifyToken(
+          currentAccessToken,
+          localToken,
+          remoteState.spotifyProviderToken,
+        );
+
+        await updateUserAuthFromPreferredToken(preferredToken);
+
+        if (preferredToken && remoteState.spotifyProviderToken !== preferredToken) {
+          void persistSpotifyToken(remoteUserId, preferredToken).catch((error) => {
+            console.error('Failed to persist refreshed Spotify token.', error);
+          });
+        }
       } catch (error) {
         console.error('Failed to load synced app state.', error);
       } finally {
