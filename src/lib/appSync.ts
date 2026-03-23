@@ -73,6 +73,30 @@ export interface RemoteAppState {
   spotifyProviderToken?: string;
 }
 
+const SUPABASE_PAGE_SIZE = 1000;
+
+async function fetchAllRows<T>(
+  pageLoader: (from: number, to: number) => Promise<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  let from = 0;
+
+  while (true) {
+    const to = from + SUPABASE_PAGE_SIZE - 1;
+    const { data, error } = await pageLoader(from, to);
+    if (error) throw error;
+
+    const page = data ?? [];
+    rows.push(...page);
+
+    if (page.length < SUPABASE_PAGE_SIZE) {
+      return rows;
+    }
+
+    from += SUPABASE_PAGE_SIZE;
+  }
+}
+
 function getSourceTrackCount(sourceId: string | undefined, songs: Song[]) {
   if (!sourceId) return 0;
   return songs.filter((song) => song.playlistId === sourceId).length;
@@ -163,46 +187,52 @@ export async function loadUserAppState(
     throw new Error("Supabase client is not configured.");
   }
 
-  const [stateResult, songsResult, ratingsResult, matchesResult] =
-    await Promise.all([
-      supabase
-        .from("sorter_state")
-        .select(
-          "locale, playlists, selected_playlist_id, active_source, liked_songs_import, last_matched_at, spotify_provider_token",
-        )
-        .eq("user_id", userId)
-        .maybeSingle<RemoteStateRow>(),
-      supabase
+  const client = supabase;
+
+  const [stateResult, songRows, ratingRows, matchRows] = await Promise.all([
+    client
+      .from("sorter_state")
+      .select(
+        "locale, playlists, selected_playlist_id, active_source, liked_songs_import, last_matched_at, spotify_provider_token",
+      )
+      .eq("user_id", userId)
+      .maybeSingle<RemoteStateRow>(),
+    fetchAllRows<SongRow>(async (from, to) =>
+      await client
         .from("songs")
         .select(
           "id, user_id, spotify_track_id, playlist_id, title, artist, album, image_url, preview_url, duration_ms, tier, uncertain",
         )
         .eq("user_id", userId)
-        .order("created_at", { ascending: true }),
-      supabase
+        .order("created_at", { ascending: true })
+        .range(from, to),
+    ),
+    fetchAllRows<RatingRow>(async (from, to) =>
+      await client
         .from("ratings")
         .select("song_id, rating, matches_played, last_delta")
-        .eq("user_id", userId),
-      supabase
+        .eq("user_id", userId)
+        .order("song_id", { ascending: true })
+        .range(from, to),
+    ),
+    fetchAllRows<MatchRow>(async (from, to) =>
+      await client
         .from("matches")
         .select(
           "id, left_song_id, right_song_id, outcome, rating_gap, created_at",
         )
         .eq("user_id", userId)
-        .order("created_at", { ascending: false }),
-    ]);
+        .order("created_at", { ascending: false })
+        .range(from, to),
+    ),
+  ]);
 
   if (stateResult.error) throw stateResult.error;
-  if (songsResult.error) throw songsResult.error;
-  if (ratingsResult.error) throw ratingsResult.error;
-  if (matchesResult.error) throw matchesResult.error;
 
-  const songs = (songsResult.data ?? []).map((row) =>
-    mapSongRow(row as SongRow),
-  );
+  const songs = songRows.map((row) => mapSongRow(row));
   const ratings = Object.fromEntries(
-    (ratingsResult.data ?? []).map((row) => {
-      const typed = row as RatingRow;
+    ratingRows.map((row) => {
+      const typed = row;
       return [
         typed.song_id,
         {
@@ -214,8 +244,8 @@ export async function loadUserAppState(
       ];
     }),
   );
-  const matches = (matchesResult.data ?? []).map((row) => {
-    const typed = row as MatchRow;
+  const matches = matchRows.map((row) => {
+    const typed = row;
     return {
       id: typed.id,
       leftSongId: typed.left_song_id,
