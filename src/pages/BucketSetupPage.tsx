@@ -2,8 +2,7 @@ import { useEffect, useState } from 'react';
 import { signInWithSpotify } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/appStore';
-import { useAudioPreview } from '../hooks/useAudioPreview';
-import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
+import { useSongPlayback } from '../hooks/useSongPlayback';
 import type { Tier } from '../types';
 
 export function BucketSetupPage() {
@@ -12,10 +11,9 @@ export function BucketSetupPage() {
   const assignTier = useAppStore((s) => s.assignTier);
   const user = useAppStore((s) => s.user);
   const [history, setHistory] = useState<Array<{ id: string; prevTier?: Tier; prevUncertain: boolean }>>([]);
-  const { playingSongId, stopPreview, togglePreview } = useAudioPreview();
-
-  // 프리미엄 전용 Web Playback SDK
-  const { ready, playing: sdkPlaying, currentTrackId, error: playerError, togglePlay } = useSpotifyPlayer();
+  const { ready, error: playerError, requiresRelogin, playSong, stopPlayback, isSongPlaying, canPlaySong } = useSongPlayback({
+    isPremium: Boolean(user?.isPremium),
+  });
 
   const unassigned = songs.filter((s) => s.tier === undefined);
   const current = unassigned[0];
@@ -29,21 +27,13 @@ export function BucketSetupPage() {
 
   function handlePlay() {
     if (!current) return;
-
-    if (user?.isPremium) {
-      // 프리미엄: Web Playback SDK로 전곡 재생
-      void togglePlay(current.spotifyTrackId);
-      return;
-    }
-
-    // Free: previewUrl 미리듣기
-    void togglePreview(current);
+    void playSong(current);
   }
 
   function handleTierAssign(tier: Tier) {
     if (!current) return;
     // 티어 이동 시 재생 중이던 곡 정지
-    stopPreview();
+    void stopPlayback();
     setHistory((h) => [...h, { id: current.id, prevTier: current.tier, prevUncertain: current.uncertain }]);
     assignTier(current.id, tier, current.uncertain);
   }
@@ -69,14 +59,10 @@ export function BucketSetupPage() {
   }
 
   // 현재 곡이 SDK로 재생 중인지 확인
-  const isCurrentPlaying = user?.isPremium
-    ? sdkPlaying && currentTrackId === current?.spotifyTrackId
-    : playingSongId === current?.id;
+  const isCurrentPlaying = isSongPlaying(current);
 
   // 재생 버튼 표시 조건
-  const canPlay = user?.isPremium
-    ? ready
-    : Boolean(current?.previewUrl);
+  const canPlay = canPlaySong(current);
 
   const sessSize = 50;
   const sessProgress = ((classified % sessSize) / sessSize) * 100;
@@ -84,10 +70,10 @@ export function BucketSetupPage() {
   const sessLeft = sessSize - (classified % sessSize);
 
   useEffect(() => {
-    if (!user?.isPremium && current && playingSongId && playingSongId !== current.id) {
-      stopPreview();
+    if (!current) {
+      void stopPlayback();
     }
-  }, [current, playingSongId, stopPreview, user?.isPremium]);
+  }, [current, stopPlayback]);
 
   const ruleHints: string[] = [];
   if (classified > 10) {
@@ -190,7 +176,7 @@ export function BucketSetupPage() {
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warm-100 bg-warm-50 px-3 py-2">
           <span className="h-1.5 w-1.5 rounded-full bg-amber-500 flex-shrink-0" />
           <span className="text-[10px] text-warm-500">{playerError}</span>
-          {playerError.includes('재생 권한') || playerError.includes('재로그인') ? (
+          {requiresRelogin ? (
             <button
               type="button"
               onClick={() => {
