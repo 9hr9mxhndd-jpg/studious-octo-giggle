@@ -9,6 +9,7 @@ const FALLBACK_TRACK_IMAGE = 'https://picsum.photos/seed/track/300/300';
 
 // ── 캐시: sessionStorage 기반 (새로고침 후에도 탭 세션 내 유지) ──
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5분
+const inFlightRequests = new Map<string, Promise<unknown>>();
 
 function getCached<T>(key: string): T | undefined {
   try {
@@ -97,6 +98,24 @@ function buildSpotifyUrl(path: string, params: Record<string, string | number | 
 }
 
 // ── 전체 페이지 자동 수집 ──
+
+function dedupeRequest<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  const existing = inFlightRequests.get(key);
+  if (existing) {
+    return existing as Promise<T>;
+  }
+
+  const next = loader().finally(() => {
+    inFlightRequests.delete(key);
+  });
+  inFlightRequests.set(key, next);
+  return next;
+}
+
+function isBadRequestError(error: unknown) {
+  return error instanceof Error && error.message.includes('(400)');
+}
+
 async function fetchAllPages<T>(
   firstUrl: string,
   accessToken: string,
@@ -118,9 +137,11 @@ async function getSpotifyProfile(accessToken: string): Promise<SpotifyProfile> {
   const cached = getCached<SpotifyProfile>(cacheKey);
   if (cached) return cached;
 
-  const profile = await spotifyFetch<SpotifyProfile>('/me', accessToken);
-  setCache(cacheKey, profile);
-  return profile;
+  return dedupeRequest(cacheKey, async () => {
+    const profile = await spotifyFetch<SpotifyProfile>('/me', accessToken);
+    setCache(cacheKey, profile);
+    return profile;
+  });
 }
 
 function normalizeTrack(track: SpotifyTrack, playlistId: string, _index: number): Song | undefined {
@@ -157,45 +178,55 @@ export async function getUserPlaylists(accessToken?: string): Promise<PlaylistSu
   const cached = getCached<PlaylistSummary[]>(cacheKey);
   if (cached) return cached;
 
-  // 좋아요 곡 수 (한 번만)
-  let likedCount = 0;
-  try {
-    const liked = await spotifyFetch<{ total?: number }>(buildSpotifyUrl('/me/tracks', { limit: 1 }), accessToken);
-    likedCount = liked.total ?? 0;
-  } catch {}
+  return dedupeRequest(cacheKey, async () => {
+    // 좋아요 곡 수 (한 번만)
+    let likedCount = 0;
+    try {
+      const liked = await spotifyFetch<{ total?: number }>(buildSpotifyUrl('/me/tracks', { limit: 1 }), accessToken);
+      likedCount = liked.total ?? 0;
+    } catch {}
 
-  // 내 플레이리스트 (페이지네이션 — 50개씩)
-  const rawPlaylists = await fetchAllPages<SpotifyPlaylistItem>(
-    buildSpotifyUrl('/me/playlists', {
+    const playlistListUrl = buildSpotifyUrl('/me/playlists', {
       limit: 50,
       fields: 'items(id,name,description,images(url),items(total),tracks(total)),next',
-    }),
-    accessToken,
-  );
+    });
 
-  const playlists: PlaylistSummary[] = [
-    // 좋아요 곡을 맨 앞에 고정
-    {
-      id: 'liked',
-      name: '좋아요 표시한 노래',
-      description: '내가 좋아요를 누른 모든 곡',
-      imageUrl: 'https://misc.scdn.co/liked-songs/liked-songs-300.png',
-      trackCount: likedCount,
-      isLikedSongs: true,
-    },
-    ...rawPlaylists
-      .filter((p): p is SpotifyPlaylistItem & { id: string; name: string } => Boolean(p?.id && p.name))
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description?.trim() || '',
-        imageUrl: p.images?.[0]?.url || FALLBACK_PLAYLIST_IMAGE,
-        trackCount: p.items?.total ?? p.tracks?.total ?? 0,
-      })),
-  ];
+    let rawPlaylists: SpotifyPlaylistItem[];
+    try {
+      rawPlaylists = await fetchAllPages<SpotifyPlaylistItem>(playlistListUrl, accessToken);
+    } catch (error) {
+      // fields 최적화가 특정 계정/응답 형태에서 400을 내면 기본 응답으로 즉시 폴백합니다.
+      if (!isBadRequestError(error)) throw error;
+      rawPlaylists = await fetchAllPages<SpotifyPlaylistItem>(
+        buildSpotifyUrl('/me/playlists', { limit: 50 }),
+        accessToken,
+      );
+    }
 
-  setCache(cacheKey, playlists);
-  return playlists;
+    const playlists: PlaylistSummary[] = [
+      // 좋아요 곡을 맨 앞에 고정
+      {
+        id: 'liked',
+        name: '좋아요 표시한 노래',
+        description: '내가 좋아요를 누른 모든 곡',
+        imageUrl: 'https://misc.scdn.co/liked-songs/liked-songs-300.png',
+        trackCount: likedCount,
+        isLikedSongs: true,
+      },
+      ...rawPlaylists
+        .filter((p): p is SpotifyPlaylistItem & { id: string; name: string } => Boolean(p?.id && p.name))
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          description: p.description?.trim() || '',
+          imageUrl: p.images?.[0]?.url || FALLBACK_PLAYLIST_IMAGE,
+          trackCount: p.items?.total ?? p.tracks?.total ?? 0,
+        })),
+    ];
+
+    setCache(cacheKey, playlists);
+    return playlists;
+  });
 }
 
 // ── 트랙 임포트: 좋아요 곡과 일반 플레이리스트 분기 + 전 페이지 수집 ──
@@ -208,35 +239,49 @@ export async function importPlaylistTracks(playlistId: string, accessToken?: str
   const cached = getCached<Song[]>(cacheKey);
   if (cached) return cached;
 
-  const profile = await getSpotifyProfile(accessToken).catch(() => undefined);
-  const market = profile?.country ?? 'from_token';
+  return dedupeRequest(cacheKey, async () => {
+    const profile = await getSpotifyProfile(accessToken).catch(() => undefined);
+    // Saved Tracks / Playlist Items 문서는 ISO 시장 코드 사용을 전제로 하므로
+    // 프로필 국가를 못 받았을 때는 market 파라미터 자체를 생략합니다.
+    const market = profile?.country ?? undefined;
 
-  let songs: Song[];
+    const fetchTrackPages = async (urlWithMarket: string, urlWithoutMarket: string) => {
+      try {
+        return await fetchAllPages<{ track?: SpotifyTrack | null }>(urlWithMarket, accessToken);
+      } catch (error) {
+        if (!market || !isBadRequestError(error)) throw error;
+        return fetchAllPages<{ track?: SpotifyTrack | null }>(urlWithoutMarket, accessToken);
+      }
+    };
 
-  if (playlistId === 'liked') {
-    // 좋아요 곡 전용 엔드포인트
-    const items = await fetchAllPages<{ track?: SpotifyTrack | null }>(
-      buildSpotifyUrl('/me/tracks', { limit: 50, market }),
-      accessToken,
-    );
-    songs = items
-      .map((item, i) => item.track ? normalizeTrack(item.track, 'liked', i) : undefined)
-      .filter((s): s is Song => Boolean(s));
-  } else {
-    // 일반 플레이리스트 (전 페이지)
-    const items = await fetchAllPages<{ track?: SpotifyTrack | null }>(
-      buildSpotifyUrl(`/playlists/${playlistId}/tracks`, {
-        limit: 100,
-        market,
-        additional_types: 'track',
-      }),
-      accessToken,
-    );
-    songs = items
-      .map((item, i) => item.track ? normalizeTrack(item.track, playlistId, i) : undefined)
-      .filter((s): s is Song => Boolean(s));
-  }
+    let songs: Song[];
 
-  setCache(cacheKey, songs, 10 * 60 * 1000); // 트랙은 10분 캐시
-  return songs;
+    if (playlistId === 'liked') {
+      const items = await fetchTrackPages(
+        buildSpotifyUrl('/me/tracks', { limit: 50, market }),
+        buildSpotifyUrl('/me/tracks', { limit: 50 }),
+      );
+      songs = items
+        .map((item, i) => item.track ? normalizeTrack(item.track, 'liked', i) : undefined)
+        .filter((s): s is Song => Boolean(s));
+    } else {
+      const items = await fetchTrackPages(
+        buildSpotifyUrl(`/playlists/${playlistId}/tracks`, {
+          limit: 100,
+          market,
+          additional_types: 'track',
+        }),
+        buildSpotifyUrl(`/playlists/${playlistId}/tracks`, {
+          limit: 100,
+          additional_types: 'track',
+        }),
+      );
+      songs = items
+        .map((item, i) => item.track ? normalizeTrack(item.track, playlistId, i) : undefined)
+        .filter((s): s is Song => Boolean(s));
+    }
+
+    setCache(cacheKey, songs, 10 * 60 * 1000);
+    return songs;
+  });
 }

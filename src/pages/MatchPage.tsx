@@ -3,6 +3,7 @@ import type { Song } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { buildMatchup, getAdaptiveBattleMode } from '../lib/elo';
 import { useAppStore } from '../store/appStore';
+import { useAudioPreview } from '../hooks/useAudioPreview';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
 import { signInWithSpotify } from '../lib/supabase';
 
@@ -24,6 +25,7 @@ export function MatchPage() {
   const user = useAppStore((s) => s.user);
 
   const { ready, playing, currentTrackId, error: playerError, togglePlay } = useSpotifyPlayer();
+  const { playingSongId, togglePreview } = useAudioPreview();
 
   const matchup = buildMatchup(songs, ratings, matches.length, lastMatchedAt);
 
@@ -88,23 +90,30 @@ export function MatchPage() {
 
     // Free: 30초 미리듣기
     if (song.previewUrl) {
+      const isPreviewPlaying = playingSongId === song.id;
       return (
         <button
           type="button"
           onClick={(event) => {
             stopCardClick(event);
-            const audio = document.getElementById(`preview-${song.id}`) as HTMLAudioElement | null;
-            if (audio) {
-              if (audio.paused) void audio.play();
-              else audio.pause();
-            }
+            void togglePreview(song);
           }}
-          className="shrink-0 flex items-center justify-center w-7 h-7 rounded-full border border-warm-300 text-warm-500 hover:text-warm-700"
+          title={isPreviewPlaying ? '미리듣기 정지' : '30초 미리듣기'}
+          className={`shrink-0 flex items-center justify-center w-7 h-7 rounded-full border transition ${
+            isPreviewPlaying
+              ? 'border-brand-500 bg-brand-500 text-white'
+              : 'border-warm-300 text-warm-500 hover:border-warm-500 hover:text-warm-700'
+          }`}
         >
-          <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
-            <polygon points="1,0 9,5 1,10"/>
-          </svg>
-          <audio id={`preview-${song.id}`} src={song.previewUrl} />
+          {isPreviewPlaying ? (
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+              <rect x="0" y="0" width="3" height="8"/><rect x="5" y="0" width="3" height="8"/>
+            </svg>
+          ) : (
+            <svg width="8" height="8" viewBox="0 0 10 10" fill="currentColor">
+              <polygon points="1,0 9,5 1,10"/>
+            </svg>
+          )}
         </button>
       );
     }
