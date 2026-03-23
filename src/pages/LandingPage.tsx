@@ -366,9 +366,9 @@ export function LandingPage() {
         </div>
 
         <p className="text-center text-xs text-warm-400">
-          Premium: 전곡 재생 · Free: 30초 미리듣기
+          Spotify 로그인 한 번으로 플레이리스트 조회와 Premium 전곡 재생 권한까지 함께 요청합니다
           <br />
-          로그인 없이는 서비스를 이용할 수 없어요
+          Free 사용자는 가능한 경우 30초 미리듣기로 동작해요
         </p>
       </div>
     );
