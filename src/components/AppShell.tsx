@@ -1,7 +1,8 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import clsx from 'clsx';
 import { useState } from 'react';
-import { signOut } from '../lib/supabase';
+import { signOut } from '../lib/spotifyAuth';
+import { signOutAppSession } from '../lib/supabase';
 import { useAppStore } from '../store/appStore';
 
 const LOCK = '🔒';
@@ -11,7 +12,7 @@ export function AppShell() {
   const activeSource = useAppStore((s) => s.activeSource);
   const [logoutPending, setLogoutPending] = useState(false);
   const [logoutError, setLogoutError] = useState<string>();
-  
+
   const location = useLocation();
   const unlocked = Boolean(activeSource);
 
@@ -24,12 +25,10 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-warm-50">
-      {/* ── 상단 내비 ── */}
-      <header className="sticky top-0 z-50 bg-warm-50/95 backdrop-blur border-b border-warm-200">
+      <header className="sticky top-0 z-50 border-b border-warm-200 bg-warm-50/95 backdrop-blur">
         <div className="mx-auto max-w-lg px-4">
-          {/* 로고 + 소스칩 + 유저 */}
           <div className="flex items-center justify-between py-3">
-            <span className="font-display text-lg text-warm-800 tracking-tight">
+            <span className="font-display text-lg tracking-tight text-warm-800">
               Sorter<span className="text-brand-500">.</span>
             </span>
             <div className="flex items-center gap-2">
@@ -50,7 +49,13 @@ export function AppShell() {
                     if (logoutPending) return;
                     setLogoutPending(true);
                     setLogoutError(undefined);
-                    void signOut()
+                    void Promise.allSettled([signOut(), signOutAppSession()])
+                      .then((results) => {
+                        const rejected = results.find((result) => result.status === 'rejected');
+                        if (rejected?.status === 'rejected') {
+                          throw rejected.reason;
+                        }
+                      })
                       .catch((error: unknown) => {
                         setLogoutError(
                           error instanceof Error
@@ -60,12 +65,13 @@ export function AppShell() {
                       })
                       .finally(() => {
                         setLogoutPending(false);
+                        window.location.assign('/');
                       });
                   }}
                   className="rounded-full border border-warm-200 bg-white px-3 py-1 text-xs text-warm-500 hover:text-warm-700"
                 >
                   {user.isPremium ? '✦ ' : ''}
-                  {user.email?.split('@')[0] ?? '내 계정'} · {logoutPending ? '로그아웃 중…' : '로그아웃'}
+                  {user.displayName ?? user.email?.split('@')[0] ?? '내 계정'} · {logoutPending ? '로그아웃 중…' : '로그아웃'}
                 </button>
               )}
             </div>
@@ -79,7 +85,6 @@ export function AppShell() {
             </div>
           )}
 
-          {/* 탭 바 */}
           <div className="flex">
             {tabs.map((tab) => {
               const disabled = !tab.alwaysOn && !unlocked;
@@ -109,7 +114,6 @@ export function AppShell() {
         </div>
       </header>
 
-      {/* ── 페이지 콘텐츠 ── */}
       <main className="mx-auto max-w-lg px-4 pb-10 pt-5">
         <Outlet />
       </main>

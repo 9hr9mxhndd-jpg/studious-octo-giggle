@@ -187,9 +187,8 @@ function syncActiveSourceTrackCount(
   };
 }
 
-function getRemoteSyncUserId(state: Pick<AppState, 'auth' | 'user'>) {
-  if (!state.auth?.provider) return undefined;
-  return state.user?.id;
+function getRemoteSyncUserId(state: Pick<AppState, 'auth'>) {
+  return state.auth?.syncUserId;
 }
 
 function syncSessionState(state: AppState) {

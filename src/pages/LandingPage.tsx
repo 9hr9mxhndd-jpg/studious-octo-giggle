@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { convergenceFromMatches } from "../lib/elo";
 import { getUserPlaylists, importPlaylistTracks } from "../lib/spotify";
-import { signInWithSpotify } from "../lib/supabase";
+import { signInWithSpotify } from "../lib/spotifyAuth";
 import { useAppStore, type ActiveSource } from "../store/appStore";
 import type { SpotifyProduct } from "../types";
 
@@ -389,6 +389,9 @@ export function LandingPage() {
           <p className="text-xs text-warm-400">
             {spotifyPlanBadge.description}
           </p>
+          {user.displayName ? (
+            <p className="text-[11px] text-warm-300">@{user.displayName}</p>
+          ) : null}
         </div>
         <span
           className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${spotifyPlanBadge.className}`}

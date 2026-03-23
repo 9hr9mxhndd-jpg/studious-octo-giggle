@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { buildMatchup, getAdaptiveBattleMode } from '../lib/elo';
 import { useAppStore } from '../store/appStore';
 import { useSongPlayback } from '../hooks/useSongPlayback';
-import { signInWithSpotify } from '../lib/supabase';
+import { getSpotifyTrackOpenUrl } from '../lib/spotifyAuth';
 
 const SCALE_STEPS = [
   { label: 'A 훨씬', score: 1.0 },
@@ -23,7 +23,7 @@ export function MatchPage() {
   const submitMatch = useAppStore((s) => s.submitMatch);
   const user = useAppStore((s) => s.user);
 
-  const { ready, error: playerError, requiresRelogin, statusMessage, playSong, isSongPlaying } = useSongPlayback({
+  const { ready, error: playerError, requiresRelogin, statusMessage, playSong, isSongPlaying, relogin } = useSongPlayback({
     isPremium: Boolean(user?.isPremium),
   });
 
@@ -148,6 +148,17 @@ export function MatchPage() {
           <p className="mb-2 truncate text-[10px] text-warm-400">{song.artist}</p>
         </button>
         <div className="flex items-center justify-between gap-1">
+          <a
+            href={getSpotifyTrackOpenUrl(song.spotifyTrackId)}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(event) => {
+              event.stopPropagation();
+            }}
+            className="rounded-full border border-warm-200 px-2 py-1 text-[9px] text-warm-500 transition hover:border-warm-300 hover:text-warm-700"
+          >
+            전곡
+          </a>
           <span className="rounded-full bg-warm-100 px-1.5 py-0.5 text-[9px] text-warm-500">
             {Math.round(rating)}
           </span>
@@ -222,7 +233,7 @@ export function MatchPage() {
             <button
               type="button"
               onClick={() => {
-                void signInWithSpotify();
+                void relogin();
               }}
               className="rounded-full border border-warm-200 px-2.5 py-1 text-[10px] font-medium text-warm-600 hover:border-warm-300 hover:text-warm-800"
             >

@@ -30,7 +30,7 @@ export function useSongPlayback({ isPremium }: UseSongPlaybackArgs) {
   }, [isPremium, preview.stopPreview, spotify.pauseCurrent]);
 
   const requiresRelogin = Boolean(
-    spotify.error && (spotify.error.includes('재생 권한') || spotify.error.includes('재로그인') || spotify.error.includes('scope')),
+    spotify.error && (spotify.error.includes('재생 권한') || spotify.error.includes('재로그인') || spotify.error.includes('scope') || spotify.error.includes('토큰')),
   );
 
   const statusMessage = useMemo(() => {
@@ -61,5 +61,6 @@ export function useSongPlayback({ isPremium }: UseSongPlaybackArgs) {
     stopPlayback,
     isSongPlaying,
     canPlaySong,
+    relogin: spotify.relogin,
   };
 }

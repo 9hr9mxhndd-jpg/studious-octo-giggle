@@ -41,12 +41,10 @@ interface SpotifyDevice {
   supports_volume: boolean;
 }
 
-// ── SDK 로드 (중복 방지) ──
 let sdkPromise: Promise<void> | null = null;
 
 export function loadSdk(): Promise<void> {
   if (sdkPromise) return sdkPromise;
-
   if (typeof window === 'undefined') return Promise.resolve();
 
   sdkPromise = new Promise((resolve) => {
@@ -67,74 +65,60 @@ export function loadSdk(): Promise<void> {
 }
 
 async function parseError(res: Response) {
-  const text = await res.text().catch(() => '');
-  return text;
+  return res.text().catch(() => '');
+}
+
+async function spotifyPlayerFetch(input: string, init: RequestInit, accessToken: string) {
+  const response = await fetch(input, {
+    ...init,
+    headers: {
+      ...(init.headers ?? {}),
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!response.ok && response.status !== 204) {
+    const text = await parseError(response);
+    throw new Error(`${init.method ?? 'GET'} 실패 (${response.status}): ${text}`);
+  }
+
+  return response;
 }
 
 export async function getAvailableDevices(accessToken: string): Promise<SpotifyDevice[]> {
-  const res = await fetch('https://api.spotify.com/v1/me/player/devices', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-
-  if (!res.ok) {
-    const text = await parseError(res);
-    throw new Error(`장치 조회 실패 (${res.status}): ${text}`);
-  }
-
+  const res = await spotifyPlayerFetch('https://api.spotify.com/v1/me/player/devices', {}, accessToken);
   const data = await res.json() as { devices?: SpotifyDevice[] };
   return data.devices ?? [];
 }
 
-export async function transferPlayback(
-  deviceId: string,
-  accessToken: string,
-  play = false,
-): Promise<void> {
-  const res = await fetch('https://api.spotify.com/v1/me/player', {
+export async function transferPlayback(deviceId: string, accessToken: string, play = false): Promise<void> {
+  await spotifyPlayerFetch('https://api.spotify.com/v1/me/player', {
     method: 'PUT',
     headers: {
-      Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ device_ids: [deviceId], play }),
-  });
-
-  if (!res.ok && res.status !== 204) {
-    const text = await parseError(res);
-    throw new Error(`장치 전환 실패 (${res.status}): ${text}`);
-  }
+  }, accessToken);
 }
 
-// ── 특정 트랙을 device에서 재생 ──
-export async function playTrack(
-  spotifyTrackId: string,
-  deviceId: string,
-  accessToken: string,
-): Promise<void> {
-  const res = await fetch(
-    `https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`,
-    {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ uris: [`spotify:track:${spotifyTrackId}`] }),
-    },
-  );
-
-  if (!res.ok && res.status !== 204) {
-    const text = await parseError(res);
-    throw new Error(`재생 실패 (${res.status}): ${text}`);
-  }
-}
-
-// ── 재생 일시정지 ──
-export async function pausePlayback(accessToken: string): Promise<void> {
-  await fetch('https://api.spotify.com/v1/me/player/pause', {
+export async function playTrack(spotifyTrackId: string, deviceId: string, accessToken: string): Promise<void> {
+  await spotifyPlayerFetch(`https://api.spotify.com/v1/me/player/play?device_id=${deviceId}`, {
     method: 'PUT',
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ uris: [`spotify:track:${spotifyTrackId}`] }),
+  }, accessToken);
+}
+
+export async function pausePlayback(accessToken: string, deviceId?: string): Promise<void> {
+  const url = deviceId
+    ? `https://api.spotify.com/v1/me/player/pause?device_id=${deviceId}`
+    : 'https://api.spotify.com/v1/me/player/pause';
+
+  await spotifyPlayerFetch(url, {
+    method: 'PUT',
+  }, accessToken);
 }
 
 export type { SpotifyDevice, SpotifyPlayer, SpotifyPlayerState };
