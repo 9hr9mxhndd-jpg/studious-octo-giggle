@@ -3,8 +3,7 @@ import type { Song } from '../types';
 import { useNavigate } from 'react-router-dom';
 import { buildMatchup, getAdaptiveBattleMode } from '../lib/elo';
 import { useAppStore } from '../store/appStore';
-import { useAudioPreview } from '../hooks/useAudioPreview';
-import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
+import { useSongPlayback } from '../hooks/useSongPlayback';
 import { signInWithSpotify } from '../lib/supabase';
 
 const SCALE_STEPS = [
@@ -24,8 +23,9 @@ export function MatchPage() {
   const submitMatch = useAppStore((s) => s.submitMatch);
   const user = useAppStore((s) => s.user);
 
-  const { ready, playing, currentTrackId, error: playerError, togglePlay } = useSpotifyPlayer();
-  const { playingSongId, togglePreview } = useAudioPreview();
+  const { ready, error: playerError, requiresRelogin, statusMessage, playSong, isSongPlaying } = useSongPlayback({
+    isPremium: Boolean(user?.isPremium),
+  });
 
   const matchup = buildMatchup(songs, ratings, matches.length, lastMatchedAt);
 
@@ -50,7 +50,7 @@ export function MatchPage() {
   const topK = Math.max(10, Math.min(80, Math.round(Math.sqrt(songs.length) * 2)));
 
   function PlayButton({ song }: { song: Song }) {
-    const isThisPlaying = playing && currentTrackId === song.spotifyTrackId;
+    const isThisPlaying = isSongPlaying(song);
 
     const stopCardClick = (event: MouseEvent<HTMLButtonElement>) => {
       event.stopPropagation();
@@ -63,7 +63,7 @@ export function MatchPage() {
           type="button"
           onClick={(event) => {
             stopCardClick(event);
-            void togglePlay(song.spotifyTrackId);
+            void playSong(song);
           }}
           disabled={!ready}
           title={ready ? (isThisPlaying ? '일시정지' : '전곡 재생') : 'Player 연결 중...'}
@@ -90,13 +90,13 @@ export function MatchPage() {
 
     // Free: 30초 미리듣기
     if (song.previewUrl) {
-      const isPreviewPlaying = playingSongId === song.id;
+      const isPreviewPlaying = isSongPlaying(song);
       return (
         <button
           type="button"
           onClick={(event) => {
             stopCardClick(event);
-            void togglePreview(song);
+            void playSong(song);
           }}
           title={isPreviewPlaying ? '미리듣기 정지' : '30초 미리듣기'}
           className={`shrink-0 flex items-center justify-center w-7 h-7 rounded-full border transition ${
@@ -216,13 +216,9 @@ export function MatchPage() {
         <div className="flex flex-wrap items-center gap-2 rounded-xl border border-warm-100 bg-warm-50 px-3 py-2">
           <span className={`h-1.5 w-1.5 rounded-full flex-shrink-0 ${ready ? 'bg-brand-500' : 'bg-warm-300'}`} />
           <span className="text-[10px] text-warm-400">
-            {playerError
-              ? playerError
-              : ready
-                ? `Web Player 연결됨 · 전곡 재생 가능${playing ? ' · 재생 중' : ''}`
-                : 'Web Player 연결 중…'}
+            {statusMessage ?? playerError ?? (ready ? 'Web Player 연결됨 · 전곡 재생 가능' : 'Web Player 연결 중…')}
           </span>
-          {playerError && (playerError.includes('재생 권한') || playerError.includes('재로그인')) ? (
+          {playerError && requiresRelogin ? (
             <button
               type="button"
               onClick={() => {
