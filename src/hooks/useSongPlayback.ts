@@ -18,7 +18,7 @@ export function useSongPlayback({ isPremium }: UseSongPlaybackArgs) {
     }
 
     await preview.togglePreview(song);
-  }, [isPremium, preview, spotify]);
+  }, [isPremium, preview.togglePreview, spotify.togglePlay]);
 
   const stopPlayback = useCallback(async () => {
     if (isPremium) {
@@ -27,7 +27,7 @@ export function useSongPlayback({ isPremium }: UseSongPlaybackArgs) {
     }
 
     preview.stopPreview();
-  }, [isPremium, preview, spotify]);
+  }, [isPremium, preview.stopPreview, spotify.pauseCurrent]);
 
   const requiresRelogin = Boolean(
     spotify.error && (spotify.error.includes('재생 권한') || spotify.error.includes('재로그인') || spotify.error.includes('scope')),
