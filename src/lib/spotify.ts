@@ -171,11 +171,14 @@ export async function getSpotifyProduct(accessToken?: string): Promise<SpotifyPr
 
 // ── 플레이리스트 목록: Spotify 문서 기준으로 `items.total`을 우선 사용하고,
 //    구버전 응답 호환을 위해 `tracks.total`도 함께 폴백합니다. ──
-export async function getUserPlaylists(accessToken?: string): Promise<PlaylistSummary[]> {
+export async function getUserPlaylists(
+  accessToken?: string,
+  options?: { forceRefresh?: boolean },
+): Promise<PlaylistSummary[]> {
   if (!accessToken) return demoPlaylists;
 
   const cacheKey = `playlists:${accessToken.slice(-16)}`;
-  const cached = getCached<PlaylistSummary[]>(cacheKey);
+  const cached = options?.forceRefresh ? undefined : getCached<PlaylistSummary[]>(cacheKey);
   if (cached) return cached;
 
   return dedupeRequest(cacheKey, async () => {
@@ -267,12 +270,12 @@ export async function importPlaylistTracks(playlistId: string, accessToken?: str
     } else {
       const items = await fetchTrackPages(
         buildSpotifyUrl(`/playlists/${playlistId}/tracks`, {
-          limit: 100,
+          limit: 50,
           market,
           additional_types: 'track',
         }),
         buildSpotifyUrl(`/playlists/${playlistId}/tracks`, {
-          limit: 100,
+          limit: 50,
           additional_types: 'track',
         }),
       );

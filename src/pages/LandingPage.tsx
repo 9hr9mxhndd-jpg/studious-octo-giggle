@@ -134,7 +134,7 @@ export function LandingPage() {
 
   // 플레이리스트 불러오기
   useEffect(() => {
-    if (!user || playlists.length > 0) return;
+    if (!user) return;
     let cancelled = false;
     if (!auth?.accessToken) {
       setPlaylistError(
@@ -146,7 +146,7 @@ export function LandingPage() {
 
     setLoading(true);
     setPlaylistError(undefined);
-    getUserPlaylists(auth.accessToken)
+    getUserPlaylists(auth.accessToken, { forceRefresh: true })
       .then((list) => {
         if (!cancelled) setPlaylists(list);
       })
@@ -164,7 +164,7 @@ export function LandingPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, auth?.accessToken, playlists.length, setPlaylists]);
+  }, [user, auth?.accessToken, setPlaylists]);
 
   const selectedPlaylist = playlists.find((p) => p.id === selectedId);
   const hasResume = Boolean(activeSource);
