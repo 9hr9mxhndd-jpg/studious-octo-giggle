@@ -37,6 +37,7 @@ export function AuthCallbackPage() {
         return;
       }
 
+      window.history.replaceState({}, document.title, window.location.pathname);
       navigate('/', { replace: true });
     };
 
@@ -98,7 +99,7 @@ export function AuthCallbackPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-warm-50">
       <div className="h-5 w-5 animate-spin rounded-full border-2 border-warm-300 border-t-warm-700" />
-      <p className="text-sm text-warm-400">Spotify 로그인 세션을 확인하는 중…</p>
+      <p className="text-sm text-warm-400">Spotify 로그인 코드를 Supabase 세션으로 교환하는 중…</p>
     </div>
   );
 }

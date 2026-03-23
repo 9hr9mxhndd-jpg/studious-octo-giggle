@@ -5,20 +5,20 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const SPOTIFY_PROVIDER_TOKEN_STORAGE_KEY = 'oauth_provider_token';
 const SPOTIFY_PROVIDER_REFRESH_TOKEN_STORAGE_KEY = 'oauth_provider_refresh_token';
-const SPOTIFY_BASE_SCOPES = [
+const SPOTIFY_CALLBACK_PATH = '/auth/callback';
+const SPOTIFY_REQUIRED_SCOPES = [
   'user-read-private',
   'user-read-email',
   'playlist-read-private',
   'playlist-read-collaborative',
   'user-library-read',
-].join(' ');
-const SPOTIFY_PLAYBACK_SCOPES = [
   'user-read-playback-state',
-  'streaming',
   'user-modify-playback-state',
-].join(' ');
+  'streaming',
+] as const;
 
 export const hasSupabaseEnv = Boolean(supabaseUrl && supabaseAnonKey);
+export const spotifyScopeString = SPOTIFY_REQUIRED_SCOPES.join(' ');
 
 export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
   ? createClient(supabaseUrl, supabaseAnonKey, {
@@ -26,7 +26,7 @@ export const supabase = hasSupabaseEnv && supabaseUrl && supabaseAnonKey
         flowType: 'pkce',
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
+        detectSessionInUrl: false,
       },
     })
   : undefined;
@@ -62,8 +62,8 @@ if (supabase) {
 
     const userId = session?.user?.id;
     const providerToken = session?.provider_token;
-    if (userId) {
-      void persistSpotifyToken(userId, providerToken ?? undefined).catch(() => {});
+    if (userId && providerToken) {
+      void persistSpotifyToken(userId, providerToken).catch(() => {});
     }
   });
 }
@@ -112,28 +112,25 @@ function getBaseRedirectUrl() {
 
 export function getSpotifyRedirectUrl() {
   const url = new URL(getBaseRedirectUrl());
-  url.pathname = '/auth/callback';
+  url.pathname = SPOTIFY_CALLBACK_PATH;
   url.search = '';
   url.hash = '';
   return url.toString();
 }
 
-export function getAuthCallbackErrorMessage(location: Location = window.location) {
+function readAuthCallbackParam(location: Location, key: string) {
   const searchParams = new URLSearchParams(location.search);
   const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
-  const rawError =
-    searchParams.get('error_description') ??
-    searchParams.get('error') ??
-    hashParams.get('error_description') ??
-    hashParams.get('error');
+  return searchParams.get(key) ?? hashParams.get(key) ?? undefined;
+}
 
+export function getAuthCallbackErrorMessage(location: Location = window.location) {
+  const rawError = readAuthCallbackParam(location, 'error_description') ?? readAuthCallbackParam(location, 'error');
   return rawError ? decodeURIComponent(rawError.replace(/\+/g, ' ')) : undefined;
 }
 
 export function getAuthCallbackErrorCode(location: Location = window.location) {
-  const searchParams = new URLSearchParams(location.search);
-  const hashParams = new URLSearchParams(location.hash.replace(/^#/, ''));
-  return searchParams.get('error_code') ?? hashParams.get('error_code') ?? undefined;
+  return readAuthCallbackParam(location, 'error_code');
 }
 
 export async function exchangeCodeForSessionIfPresent(location: Location = window.location) {
@@ -146,10 +143,9 @@ export async function exchangeCodeForSessionIfPresent(location: Location = windo
     return { errorMessage };
   }
 
-  const params = new URLSearchParams(location.search);
-  const code = params.get('code');
+  const code = new URLSearchParams(location.search).get('code');
   if (!code) {
-    return { errorMessage: undefined };
+    return { errorMessage: '인증 코드가 없어 로그인 세션을 만들지 못했어요.' };
   }
 
   const { data, error } = await supabase.auth.exchangeCodeForSession(code);
@@ -173,6 +169,8 @@ export function getSpotifyLoginTroubleshooting(
   const isProviderConfigFailure =
     normalizedMessage.includes('provider') ||
     normalizedMessage.includes('redirect') ||
+    normalizedMessage.includes('code verifier') ||
+    normalizedMessage.includes('code challenge') ||
     normalizedCode === 'unexpected_failure';
 
   if (!isProviderConfigFailure) {
@@ -180,17 +178,17 @@ export function getSpotifyLoginTroubleshooting(
   }
 
   return {
-    title: 'Supabase Spotify OAuth 설정을 다시 확인해주세요.',
+    title: 'Spotify OAuth 설정을 다시 확인해주세요.',
     items: [
       'Spotify Developer Dashboard의 Redirect URI는 Supabase callback URL(https://<project-ref>.supabase.co/auth/v1/callback)이어야 합니다.',
-      'Supabase Authentication > URL Configuration에는 현재 앱 origin의 /auth/callback URL이 Redirect URL로 등록되어 있어야 합니다.',
+      'Supabase Authentication > URL Configuration에는 현재 앱의 /auth/callback URL이 Redirect URL로 등록되어 있어야 합니다.',
+      '프리뷰 배포를 사용한다면 Supabase Redirect URLs에 해당 프리뷰 도메인(/auth/callback 포함)도 추가해야 합니다.',
       'Supabase Authentication > Providers > Spotify에 Spotify Client ID와 Client Secret이 정확히 저장되어 있는지 확인해주세요.',
-      'Spotify 앱이 Development Mode라면 로그인에 사용하는 Spotify 계정을 User Management에 추가해야 합니다.',
     ],
   };
 }
 
-async function signInWithSupabaseSpotify(scopes: string) {
+export async function signInWithSpotify() {
   if (!supabase) {
     throw new Error('Supabase 환경변수가 설정되지 않았어요.');
   }
@@ -199,7 +197,7 @@ async function signInWithSupabaseSpotify(scopes: string) {
     provider: 'spotify',
     options: {
       redirectTo: getSpotifyRedirectUrl(),
-      scopes,
+      scopes: spotifyScopeString,
       queryParams: {
         show_dialog: 'true',
       },
@@ -209,14 +207,6 @@ async function signInWithSupabaseSpotify(scopes: string) {
   if (error) {
     throw error;
   }
-}
-
-export async function signInWithSpotify() {
-  await signInWithSupabaseSpotify(SPOTIFY_BASE_SCOPES);
-}
-
-export async function signInWithSpotifyPlaybackPermissions() {
-  await signInWithSupabaseSpotify([SPOTIFY_BASE_SCOPES, SPOTIFY_PLAYBACK_SCOPES].join(' '));
 }
 
 export async function signOut() {

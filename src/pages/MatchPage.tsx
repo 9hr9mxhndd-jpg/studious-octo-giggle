@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { buildMatchup, getAdaptiveBattleMode } from '../lib/elo';
 import { useAppStore } from '../store/appStore';
 import { useSpotifyPlayer } from '../hooks/useSpotifyPlayer';
-import { signInWithSpotifyPlaybackPermissions } from '../lib/supabase';
+import { signInWithSpotify } from '../lib/supabase';
 
 const SCALE_STEPS = [
   { label: 'A 훨씬', score: 1.0 },
@@ -217,11 +217,11 @@ export function MatchPage() {
             <button
               type="button"
               onClick={() => {
-                void signInWithSpotifyPlaybackPermissions();
+                void signInWithSpotify();
               }}
               className="rounded-full border border-warm-200 px-2.5 py-1 text-[10px] font-medium text-warm-600 hover:border-warm-300 hover:text-warm-800"
             >
-              재생 권한 승인
+              Spotify 다시 로그인
             </button>
           ) : null}
         </div>

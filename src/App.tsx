@@ -39,9 +39,15 @@ function applySpotifyProduct(
   };
 }
 
-function hasAuthCallbackError(search: string) {
-  const params = new URLSearchParams(search);
-  return Boolean(params.get('error_description') ?? params.get('error'));
+function hasAuthCallbackError(search: string, hash: string) {
+  const searchParams = new URLSearchParams(search);
+  const hashParams = new URLSearchParams(hash.replace(/^#/, ''));
+  return Boolean(
+    searchParams.get('error_description') ??
+    searchParams.get('error') ??
+    hashParams.get('error_description') ??
+    hashParams.get('error'),
+  );
 }
 
 export default function App() {
@@ -57,7 +63,7 @@ export default function App() {
   const clearSyncedState = useAppStore((s) => s.clearSyncedState);
   const [sessionResolved, setSessionResolved] = useState(!supabase);
   const isAuthCallback = location.pathname === '/auth/callback';
-  const callbackHasError = hasAuthCallbackError(location.search);
+  const callbackHasError = hasAuthCallbackError(location.search, location.hash);
   const resolveGenRef = useRef(0);
 
   useEffect(() => {
