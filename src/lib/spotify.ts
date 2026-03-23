@@ -267,12 +267,12 @@ export async function importPlaylistTracks(playlistId: string, accessToken?: str
     } else {
       const items = await fetchTrackPages(
         buildSpotifyUrl(`/playlists/${playlistId}/tracks`, {
-          limit: 100,
+          limit: 50,
           market,
           additional_types: 'track',
         }),
         buildSpotifyUrl(`/playlists/${playlistId}/tracks`, {
-          limit: 100,
+          limit: 50,
           additional_types: 'track',
         }),
       );
