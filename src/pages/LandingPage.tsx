@@ -146,7 +146,7 @@ export function LandingPage() {
 
     setLoading(true);
     setPlaylistError(undefined);
-    getUserPlaylists(auth.accessToken)
+    getUserPlaylists(auth.accessToken, { forceRefresh: true })
       .then((list) => {
         if (!cancelled) setPlaylists(list);
       })

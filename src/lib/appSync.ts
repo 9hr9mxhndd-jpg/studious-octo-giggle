@@ -204,7 +204,7 @@ export async function loadUserAppState(
           "id, user_id, spotify_track_id, playlist_id, title, artist, album, image_url, preview_url, duration_ms, tier, uncertain",
         )
         .eq("user_id", userId)
-        .order("created_at", { ascending: true })
+        .order("id", { ascending: true })
         .range(from, to),
     ),
     fetchAllRows<RatingRow>(async (from, to) =>
@@ -223,6 +223,7 @@ export async function loadUserAppState(
         )
         .eq("user_id", userId)
         .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
         .range(from, to),
     ),
   ]);
